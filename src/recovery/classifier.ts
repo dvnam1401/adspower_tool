@@ -6,7 +6,7 @@
  * Tầng 3 BLOCKED/DATA: CAPTCHA, ban, sai mật khẩu → Escalate người dùng
  */
 
-import { ClassifiedError, ErrorTier, DOMAction } from '../types/index.js';
+import { ClassifiedError, ErrorTier, DOMAction, AccountStatus } from '../types/index.js';
 import { logger } from '../utils/logger.js';
 
 // ==========================================
@@ -144,6 +144,17 @@ export class ErrorClassifier {
     site?: string,
     action?: DOMAction
   ): ClassifiedError {
+    
+    let accountStatus: AccountStatus = 'UNKNOWN';
+    const msg = message.toLowerCase();
+    
+    if (tier === 'transient') accountStatus = 'PROXY_ERROR';
+    else if (/disabled|locked|suspended|banned/i.test(msg)) accountStatus = 'DEAD_DISABLED';
+    else if (/checkpoint|security check/i.test(msg)) accountStatus = 'CHECKPOINT_956';
+    else if (/verify.*human|upload|face/i.test(msg)) accountStatus = 'CHECKPOINT_282';
+    else if (/password|credentials/i.test(msg)) accountStatus = 'WRONG_PASS';
+    else if (/captcha|robot/i.test(msg)) accountStatus = 'RECAPTCHA_OBSTACLE';
+    else if (tier === 'blocked' || tier === 'data') accountStatus = 'NEEDS_HUMAN_REVIEW';
     switch (tier) {
       case 'transient':
         return {
@@ -154,7 +165,7 @@ export class ErrorClassifier {
           action,
           canAutoRetry: true,
           requiresAgent: false,
-          requiresHumanEscalation: false,
+          requiresHumanEscalation: false, accountStatus,
         };
 
       case 'structural':
@@ -166,7 +177,7 @@ export class ErrorClassifier {
           action,
           canAutoRetry: false,
           requiresAgent: true,
-          requiresHumanEscalation: false,
+          requiresHumanEscalation: false, accountStatus,
         };
 
       case 'blocked':
@@ -179,7 +190,7 @@ export class ErrorClassifier {
           action,
           canAutoRetry: false,
           requiresAgent: false,
-          requiresHumanEscalation: true,
+          requiresHumanEscalation: true, accountStatus,
         };
 
       default:
@@ -191,7 +202,7 @@ export class ErrorClassifier {
           action,
           canAutoRetry: true, // Thử retry an toàn cho unknown
           requiresAgent: false,
-          requiresHumanEscalation: false,
+          requiresHumanEscalation: false, accountStatus,
         };
     }
   }

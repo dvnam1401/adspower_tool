@@ -179,8 +179,19 @@ export interface DOMActionResult {
 }
 
 // ==========================================
-// 4. 3-Tier Error Handling Types
+// 4. 3-Tier Error Handling Types & Account Status
 // ==========================================
+
+export type AccountStatus = 
+  | 'LIVE' 
+  | 'DEAD_DISABLED' 
+  | 'CHECKPOINT_956' 
+  | 'CHECKPOINT_282' 
+  | 'WRONG_PASS' 
+  | 'RECAPTCHA_OBSTACLE' 
+  | 'PROXY_ERROR'
+  | 'NEEDS_HUMAN_REVIEW'
+  | 'UNKNOWN';
 
 export type ErrorTier =
   | 'transient'   // Network timeout, page loading slow -> Auto Retry
@@ -198,6 +209,7 @@ export interface ClassifiedError {
   canAutoRetry: boolean;
   requiresAgent: boolean;
   requiresHumanEscalation: boolean;
+  accountStatus?: AccountStatus;
 }
 
 // ==========================================
