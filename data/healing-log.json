@@ -1,0 +1,32 @@
+[
+  {
+    "eventId": "afba4357-f750-4ee4-a6d4-45a3294c9779",
+    "timestamp": "2026-08-20T06:47:41.655Z",
+    "site": "www.facebook.com",
+    "actionType": "checkpoint_resolve",
+    "errorTier": "structural",
+    "errorMessage": "LLM API Key chưa được cấu hình trong Settings.",
+    "oldSelectors": [
+      {
+        "type": "css",
+        "value": "body",
+        "priority": 1
+      }
+    ],
+    "resolution": "escalated",
+    "tokensUsed": 0,
+    "durationMs": 2,
+    "visionFallbackUsed": false
+  },
+  {
+    "eventId": "evt_1787208461660",
+    "timestamp": "2026-08-20T06:47:41.660Z",
+    "site": "www.facebook.com",
+    "actionType": "wait_for_selector",
+    "errorTier": "blocked",
+    "errorMessage": "[Checkpoint Detected] Facebook Security Checkpoint: https://www.facebook.com/checkpoint/1501092823525282/?next=https%3A%2F%2Fwww.facebook.com%2F#",
+    "resolution": "escalated",
+    "tokensUsed": 0,
+    "durationMs": 10046
+  }
+]

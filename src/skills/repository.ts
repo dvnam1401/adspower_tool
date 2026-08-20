@@ -122,6 +122,32 @@ export class SkillRepository {
   }
 
   public saveSkill(skill: Skill): Skill {
+    const existing = this.find(skill.site, skill.actionType);
+    if (existing && existing.skillId !== skill.skillId) {
+      // Append-only: Trộn selector mới lên đầu, giữ selector cũ phía sau
+      const existingSelectors = existing.selectorChain || [];
+      const newSelectors = skill.selectorChain || [];
+      
+      // Lọc trùng lặp
+      const mergedSelectors = [...newSelectors];
+      for (const oldSel of existingSelectors) {
+        if (!mergedSelectors.find(s => s.value === oldSel.value)) {
+          mergedSelectors.push({...oldSel, priority: mergedSelectors.length + 1});
+        }
+      }
+      
+      existing.selectorChain = mergedSelectors;
+      existing.version += 1;
+      existing.status = 'testing';
+      existing.failCount = 0; // Reset fail count khi có selector mới
+      existing.previousVersions = existing.previousVersions || [];
+      existing.previousVersions.push(JSON.stringify(existingSelectors));
+      
+      this.skills.set(existing.skillId, existing);
+      this.save();
+      return existing;
+    }
+
     this.skills.set(skill.skillId, skill);
     this.save();
     return skill;
@@ -142,7 +168,6 @@ export class SkillRepository {
     skill.successCount += 1;
     skill.lastVerifiedAt = new Date().toISOString();
 
-    // Vòng đời: Sau 5 lần thành công liên tiếp ở phase testing -> promote lên verified
     if (skill.status === 'testing' && skill.successCount >= 5) {
       skill.status = 'verified';
       logger.info(`🎉 Skill [${skill.skillId}] đã được tự động thăng hạng lên VERIFIED sau 5 lần thành công!`);
@@ -157,10 +182,13 @@ export class SkillRepository {
     if (!skill) return false;
     skill.failCount += 1;
 
-    // Vòng đời: Nếu fail liên tiếp khi đang verified -> rollback về candidate để Agent sửa lại
-    if (skill.status === 'verified' && skill.failCount >= 2) {
+    // Vòng đời: 10 lần fail liên tiếp -> Soft delete (rollback hẳn) để loại bỏ rác
+    if (skill.failCount >= 10) {
       skill.status = 'rollback';
-      logger.warn(`⚠️ Skill [${skill.skillId}] bị lỗi 2 lần liên tiếp -> Đã ROLLBACK về candidate!`);
+      logger.warn(`⚠️ Skill [${skill.skillId}] bị lỗi 10 lần liên tiếp -> Soft-delete (Rollback).`);
+    } else if (skill.status === 'verified' && skill.failCount >= 2) {
+      skill.status = 'testing'; // Hạ cấp về testing thay vì rollback ngay
+      logger.warn(`⚠️ Skill [${skill.skillId}] bị lỗi 2 lần liên tiếp -> Hạ cấp về Testing!`);
     }
 
     this.save();

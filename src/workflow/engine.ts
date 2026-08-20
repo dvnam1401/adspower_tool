@@ -26,6 +26,8 @@ import { config } from '../config/index.js';
 import { adsPowerClient } from '../adspower/client.js';
 import { cdpManager } from '../dom/cdp.js';
 import { healingOrchestrator } from '../recovery/healing-orchestrator.js';
+import { popupKiller } from '../dom/popup-killer.js';
+import { synthesizeBatchReportAndNotify } from '../utils/telegram.js';
 
 
 // Broadcast function will be injected from app.ts
@@ -307,7 +309,90 @@ export class WorkflowEngine {
         if (this.broadcastFn) {
           this.broadcastFn('workflow_batch_completed', this.getBatchStatus());
         }
+
+        // Tự động tổng hợp báo cáo bằng AI và gửi về Telegram
+        this.synthesizeWorkflowReportAndNotify().catch(err => {
+          logger.error(`[WorkflowEngine Telegram Error] ${err.message}`);
+        });
       }
+    }
+  }
+
+  /**
+   * Tổng hợp báo cáo kết quả của toàn bộ Workflow Batch và gửi tin nhắn Telegram
+   */
+  private async synthesizeWorkflowReportAndNotify(): Promise<void> {
+    try {
+      const tasksList = Array.from(this.tasks.values());
+      if (tasksList.length === 0) return;
+
+      let startTimeMs = Date.now();
+      let endTimeMs = Date.now();
+
+      tasksList.forEach(t => {
+        if (t.startedAt) {
+          const s = new Date(t.startedAt).getTime();
+          if (s < startTimeMs) startTimeMs = s;
+        }
+        if (t.finishedAt) {
+          const f = new Date(t.finishedAt).getTime();
+          if (f > endTimeMs) endTimeMs = f;
+        }
+      });
+
+      let successCount = 0;
+      let checkpointCount = 0;
+      let failedCount = 0;
+
+      const results = tasksList.map(t => {
+        const errText = (t.errorMessage || '').toLowerCase();
+        let statusStr = 'failed';
+        if (t.status === 'completed') {
+          statusStr = 'logged_in';
+          successCount++;
+        } else if (errText.includes('checkpoint') || errText.includes('xác thực') || errText.includes('confirm')) {
+          statusStr = 'checkpoint_human_verification';
+          checkpointCount++;
+        } else {
+          failedCount++;
+        }
+
+        return {
+          identifier: t.identifier || t.profileId,
+          profileId: t.profileId,
+          profileName: t.profileName || t.profileId,
+          error: t.errorMessage,
+          result: {
+            success: t.status === 'completed',
+            status: statusStr as any,
+            message: t.errorMessage || 'Thực hiện workflow hoàn tất',
+            profileId: t.profileId,
+            profileName: t.profileName || t.profileId,
+            currentUrl: ''
+          },
+          startTime: t.startedAt || new Date().toISOString(),
+          endTime: t.finishedAt,
+          durationMs: t.startedAt && t.finishedAt ? new Date(t.finishedAt).getTime() - new Date(t.startedAt).getTime() : 0
+        };
+      });
+
+      const summary = {
+        total: tasksList.length,
+        completed: tasksList.filter(t => t.status === 'completed' || t.status === 'failed' || t.status === 'escalated').length,
+        successCount,
+        alreadyLoggedInCount: 0,
+        checkpointCount,
+        failedCount,
+        startTime: new Date(startTimeMs).toISOString(),
+        endTime: new Date(endTimeMs).toISOString(),
+        totalDurationMs: Math.max(1000, endTimeMs - startTimeMs),
+        results
+      };
+
+      logger.info(`[WorkflowEngine Telegram] Bắt đầu tổng hợp báo cáo AI cho đợt chạy ${tasksList.length} profiles...`);
+      await synthesizeBatchReportAndNotify(summary);
+    } catch (err: any) {
+      logger.error(`[WorkflowEngine Telegram Report Fail] ${err.message}`);
     }
   }
 
@@ -361,6 +446,15 @@ export class WorkflowEngine {
         this.updateProgress(task, 'Hoàn thành thành công ✅');
         this.saveCheckpoint(task);
         logger.info(`[WorkflowEngine] ✅ Task ${task.taskId} COMPLETED (Profile: ${task.profileId})`);
+
+        if (config.automation.closeSuccessBrowsers) {
+          logger.info(`[WorkflowEngine] 🚪 [Auto-Close] Tự động đóng cửa sổ profile ${task.profileId} sau khi hoàn thành...`);
+          await cdpManager.disconnect(task.profileId).catch(() => {});
+          await adsPowerClient.stopBrowser({ profileId: task.profileId }).catch(() => {});
+          if (this.broadcastFn) {
+            this.broadcastFn('profile_status_change', { profileId: task.profileId, status: 'inactive' });
+          }
+        }
       }
     } catch (err: any) {
       task.status = 'failed';
@@ -378,14 +472,20 @@ export class WorkflowEngine {
   private async executeStep(task: WorkflowTask, step: WorkflowStep): Promise<void> {
     const action = step.action;
     
-    // Đảm bảo trình duyệt đang mở
+    // Đảm bảo trình duyệt đang mở và đã kết nối CDP
     let page = cdpManager.getActivePage(task.profileId);
     
     if (!page) {
-      // Nếu chưa có CDP session, thử connect với endpoint lấy từ connData (giả định là wsEndpoint đã được lưu vào task)
-      // Để hoàn thiện hơn, WorkflowEngine nên tự động startBrowser và lưu wsEndpoint vào task.
-      // Tạm thời nếu không có page, navigate có thể connect
-      throw new Error(`Profile ${task.profileId} chưa kết nối CDP. Cần start browser trước.`);
+      logger.info(`[WorkflowEngine] 🚀 Profile ${task.profileId} chưa kết nối CDP -> Tự động khởi động trình duyệt AdsPower...`);
+      const connData = await adsPowerClient.startBrowser({ profileId: task.profileId });
+      if (!connData || !connData.ws || !connData.ws.puppeteer) {
+        throw new Error(`Không thể khởi động AdsPower Profile ${task.profileId}. Cổng kết nối websocket không khả dụng.`);
+      }
+      page = await cdpManager.connect(task.profileId, connData.ws.puppeteer);
+      await popupKiller.injectInitScript(page);
+      if (this.broadcastFn) {
+        this.broadcastFn('profile_status_change', { profileId: task.profileId, status: 'active' });
+      }
     }
 
     if (action.actionType === 'navigate') {
@@ -403,9 +503,14 @@ export class WorkflowEngine {
     }
 
     // Các DOM action khác (click, fill, type, wait_for_selector,...) -> Qua Healing Orchestrator
+    let siteDomain = 'facebook.com';
+    try {
+      siteDomain = new URL(page.url()).hostname || 'facebook.com';
+    } catch {}
+
     const result = await healingOrchestrator.executeWithHealing(action, page, {
       profileId: task.profileId,
-      site: new URL(page.url()).hostname,
+      site: siteDomain,
       step: step
     });
 
@@ -439,16 +544,21 @@ export class WorkflowEngine {
       const cleanId = rawId.trim();
       if (!cleanId) continue;
 
-      const cleanLower = cleanId.toLowerCase();
-      const serialNum = cleanId.replace(/^#/, '');
+      const cleanLower = cleanId.toLowerCase().replace(/\s+/g, ' ').trim();
+      const serialNum = cleanId.replace(/^#/, '').trim();
 
-      const found = allProfiles.find(
-        p =>
-          p.user_id === cleanId ||
-          p.serial_number === cleanId ||
-          p.serial_number === serialNum ||
-          p.name?.toLowerCase().trim() === cleanLower
-      );
+      const found = allProfiles.find(p => {
+        const pName = (p.name || '').toLowerCase().replace(/\s+/g, ' ').trim();
+        const pUser = String(p.user_id || '').trim();
+        const pSerial = String(p.serial_number || '').trim();
+
+        return (
+          pUser === cleanId ||
+          pSerial === cleanId ||
+          pSerial === serialNum ||
+          pName === cleanLower
+        );
+      });
 
       if (found) {
         resolved.push({ identifier: cleanId, profile: found });

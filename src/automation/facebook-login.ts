@@ -9,6 +9,7 @@ import { AdsPowerProfileInfo, DOMAction } from '../types/index.js';
 import { aiPageAnalyzer } from '../utils/ai-analyzer.js';
 import { notifySingleProfileResult } from '../utils/telegram.js';
 import { healingOrchestrator } from '../recovery/healing-orchestrator.js';
+import { googleSheetService } from './google-sheet.js';
 
 export interface FacebookLoginResult {
   success: boolean;
@@ -171,9 +172,55 @@ export class FacebookLoginAutomation {
       return finalRes;
     }
 
-    // 5. KHỞI ĐỘNG CƠ CHẾ AUTONOMOUS STATE MACHINE (TỰ ĐỘNG GIẢI QUYẾT TỪNG TRỞ NGẠI ĐA TẦNG)
-    logger.info(`[Step 4/4] Kích hoạt Autonomous State Engine tự động giải quyết đa tầng các bước đăng nhập...`);
-    const result = await this.runAutonomousLoginEngine(page, username, password, fakey, profileId, profileName);
+    // 5. KHỞI ĐỘNG CƠ CHẾ AUTONOMOUS STATE MACHINE (CÓ RETRY GOOGLE SHEET)
+    logger.info(`[Step 4/4] Kích hoạt Autonomous State Engine...`);
+    let result: FacebookLoginResult = { success: false, status: 'failed', message: 'Unknown', profileId, profileName, currentUrl: '' };
+    
+    for (let retry = 0; retry < 6; retry++) {
+      if (retry > 0) {
+        logger.info(`🔄 [Retry ${retry}/5] Gọi Google Sheet để lấy Cookie dự phòng...`);
+        const backup = await googleSheetService.getBackupData(profileId);
+        if (backup && backup.cookie) {
+          logger.info(`🍪 Bơm Cookie mới từ Google Sheet vào Browser Context...`);
+          // Xóa cookie cũ và bơm cookie mới (Playwright cách)
+          const context = page.context();
+          await context.clearCookies();
+          
+          // Parse string cookie đơn giản 'c_user=123; xs=456;' -> Playwright format
+          const cookieArray = backup.cookie.split(';').map(c => c.trim()).filter(c => c).map(c => {
+            const [name, ...rest] = c.split('=');
+            return {
+              name,
+              value: rest.join('='),
+              domain: '.facebook.com',
+              path: '/'
+            };
+          });
+          
+          if (cookieArray.length > 0) {
+            await context.addCookies(cookieArray);
+            await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 30000 }).catch(() => {});
+            await new Promise(r => setTimeout(r, 2000));
+          }
+        }
+      }
+
+      result = await this.runAutonomousLoginEngine(page, username, password, fakey, profileId, profileName);
+      
+      // Nếu thành công, hoặc lỗi không thuộc nhóm sai pass / recaptcha -> thoát vòng lặp
+      if (result.success || 
+         (result.status !== 'failed' && result.status !== 'recapcha_detected' && !result.message.includes('Wrong Password') && !result.message.includes('Mật khẩu bạn đã nhập không chính xác'))) {
+        break;
+      }
+      
+      logger.warn(`⚠️ Đăng nhập thất bại (Lý do: ${result.status}). Chuẩn bị retry với Cookie Google Sheet...`);
+    }
+
+    if (!result.success && (result.status === 'failed' || result.status === 'recapcha_detected' || result.message.includes('Wrong Password'))) {
+      result.status = 'needs_human_review';
+      result.message += ' (Đã thử Fallback Google Sheet 6 lần nhưng vẫn thất bại)';
+      await googleSheetService.updateStatus(profileId, 'NEEDS_HUMAN_REVIEW');
+    }
 
     logger.info('===============================================================');
     logger.info(`🏁 KẾT QUẢ AUTOMATION: [${result.status.toUpperCase()}] ${result.message}`);

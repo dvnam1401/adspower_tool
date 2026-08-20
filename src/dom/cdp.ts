@@ -197,9 +197,9 @@ export class PlaywrightCDPManager {
         }).join('\\n');
       })()`);
       
-      return snapshot || 'DOM is empty or could not be parsed.';
+      return (snapshot as string) || 'DOM is empty or could not be parsed.';
     } catch (e: any) {
-      return \`Failed to get DOM snapshot: \${e.message}\`;
+      return `Failed to get DOM snapshot: ${e.message}`;
     }
   }
 

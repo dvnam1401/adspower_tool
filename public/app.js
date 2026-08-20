@@ -155,6 +155,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     fetchSkills();
     fetchHealingEvents();
     fetchWorkflowStatus();
+
+    // Auto sync active browser profile status every 10s
+    setInterval(() => {
+      checkActiveProfiles();
+    }, 10000);
   }
 });
 
@@ -423,6 +428,22 @@ async function loadSettingsToModal() {
     if (elAutoClose && data.automation?.closeSuccessBrowsers !== undefined) {
       elAutoClose.checked = Boolean(data.automation.closeSuccessBrowsers);
     }
+
+    const elWinTiling = document.getElementById('setting-window-tiling');
+    const elWinAutoScale = document.getElementById('setting-window-autoscale');
+    const elWinCols = document.getElementById('setting-window-cols');
+    const elWinRows = document.getElementById('setting-window-rows');
+    const elWinWidth = document.getElementById('setting-window-width');
+    const elWinHeight = document.getElementById('setting-window-height');
+
+    if (data.windowLayout) {
+      if (elWinTiling && data.windowLayout.enabled !== undefined) elWinTiling.checked = Boolean(data.windowLayout.enabled);
+      if (elWinAutoScale && data.windowLayout.autoScale !== undefined) elWinAutoScale.checked = Boolean(data.windowLayout.autoScale);
+      if (elWinCols && data.windowLayout.columns) elWinCols.value = data.windowLayout.columns;
+      if (elWinRows && data.windowLayout.maxRows) elWinRows.value = data.windowLayout.maxRows;
+      if (elWinWidth && data.windowLayout.width) elWinWidth.value = data.windowLayout.width;
+      if (elWinHeight && data.windowLayout.height) elWinHeight.value = data.windowLayout.height;
+    }
   } catch (err) {
     console.error('Không thể đọc cấu hình:', err);
   }
@@ -440,6 +461,13 @@ async function saveSettingsFromModal() {
   const elTgToken = document.getElementById('setting-telegram-token');
   const elTgChatId = document.getElementById('setting-telegram-chatid');
   const elAutoClose = document.getElementById('setting-autoclose-success');
+
+  const elWinTiling = document.getElementById('setting-window-tiling');
+  const elWinAutoScale = document.getElementById('setting-window-autoscale');
+  const elWinCols = document.getElementById('setting-window-cols');
+  const elWinRows = document.getElementById('setting-window-rows');
+  const elWinWidth = document.getElementById('setting-window-width');
+  const elWinHeight = document.getElementById('setting-window-height');
 
   const concurrencyVal = Number(elConcurrency?.value || 5);
   if (isNaN(concurrencyVal) || concurrencyVal < 1) {
@@ -464,6 +492,14 @@ async function saveSettingsFromModal() {
     },
     automation: {
       closeSuccessBrowsers: Boolean(elAutoClose?.checked),
+    },
+    windowLayout: {
+      enabled: Boolean(elWinTiling?.checked),
+      autoScale: Boolean(elWinAutoScale?.checked),
+      columns: Number(elWinCols?.value || 4),
+      maxRows: Number(elWinRows?.value || 1),
+      width: Number(elWinWidth?.value || 450),
+      height: Number(elWinHeight?.value || 700),
     },
   };
 
@@ -789,7 +825,7 @@ function initFiltersAndActions() {
 
   document.getElementById('select-status')?.addEventListener('change', () => {
     currentPage = 1;
-    renderProfiles();
+    checkActiveProfiles();
   });
 
   const selectPageSize = document.getElementById('select-page-size');

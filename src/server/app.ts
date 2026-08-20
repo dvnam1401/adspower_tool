@@ -2,6 +2,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { exec } from 'child_process';
 import { adsPowerClient } from '../adspower/client.js';
 import { skillRepository } from '../skills/repository.js';
 import { cdpManager } from '../dom/cdp.js';
@@ -181,12 +182,13 @@ app.get('/api/config', (req: Request, res: Response) => {
     llm: config.llm,
     telegram: config.telegram,
     automation: config.automation,
+    windowLayout: config.windowLayout,
   });
 });
 
 app.post('/api/config', (req: Request, res: Response) => {
   try {
-    const { maxProfiles, profileStartTimeoutMs, domActionTimeoutMs, adspowerUrl, llm, telegram, automation } = req.body;
+    const { maxProfiles, profileStartTimeoutMs, domActionTimeoutMs, adspowerUrl, llm, telegram, automation, windowLayout } = req.body;
     
     const partialToUpdate: any = {};
 
@@ -225,6 +227,19 @@ app.post('/api/config', (req: Request, res: Response) => {
     if (automation && typeof automation === 'object') {
       partialToUpdate.automation = {
         closeSuccessBrowsers: Boolean(automation.closeSuccessBrowsers),
+      };
+    }
+
+    if (windowLayout && typeof windowLayout === 'object') {
+      partialToUpdate.windowLayout = {
+        enabled: Boolean(windowLayout.enabled),
+        autoScale: Boolean(windowLayout.autoScale !== undefined ? windowLayout.autoScale : true),
+        columns: Math.max(1, Number(windowLayout.columns || 4)),
+        maxRows: Math.max(1, Number(windowLayout.maxRows || 1)),
+        width: Math.max(200, Number(windowLayout.width || 450)),
+        height: Math.max(200, Number(windowLayout.height || 700)),
+        gapX: Number(windowLayout.gapX ?? 4),
+        gapY: Number(windowLayout.gapY ?? 4),
       };
     }
 
@@ -308,6 +323,68 @@ app.get('/api/profiles', async (req: Request, res: Response) => {
   }
 });
 
+let cachedScreenRes: { width: number; height: number } | null = null;
+
+function getPrimaryScreenResolution(): Promise<{ width: number; height: number }> {
+  if (cachedScreenRes) return Promise.resolve(cachedScreenRes);
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') {
+      cachedScreenRes = { width: 1920, height: 1080 };
+      return resolve(cachedScreenRes);
+    }
+    exec('powershell -Command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.Screen]::PrimaryScreen.Bounds | ConvertTo-Json"', { timeout: 2000 }, (err, stdout) => {
+      if (err || !stdout) {
+        cachedScreenRes = { width: 1920, height: 1080 };
+        return resolve(cachedScreenRes);
+      }
+      try {
+        const bounds = JSON.parse(stdout);
+        cachedScreenRes = {
+          width: Number(bounds.Width) || 1920,
+          height: Number(bounds.Height) || 1080,
+        };
+        resolve(cachedScreenRes);
+      } catch (e) {
+        cachedScreenRes = { width: 1920, height: 1080 };
+        resolve(cachedScreenRes);
+      }
+    });
+  });
+}
+
+// Prefetch screen resolution
+getPrimaryScreenResolution().catch(() => {});
+
+function getWindowPositionLaunchArgs(index: number): string[] {
+  if (!config.windowLayout?.enabled) return [];
+  const cols = Math.max(1, config.windowLayout.columns || 4);
+  const rows = Math.max(1, config.windowLayout.maxRows || 1);
+  const gapX = config.windowLayout.gapX ?? 4;
+  const gapY = config.windowLayout.gapY ?? 4;
+
+  let width = Math.max(200, config.windowLayout.width || 450);
+  let height = Math.max(200, config.windowLayout.height || 700);
+
+  if (config.windowLayout.autoScale) {
+    const screenWidth = cachedScreenRes?.width || 1920;
+    const screenHeight = cachedScreenRes?.height || 1080;
+
+    const usableWidth = screenWidth - (cols - 1) * gapX;
+    const usableHeight = screenHeight - (rows - 1) * gapY - 40;
+
+    width = Math.floor(usableWidth / cols);
+    height = Math.floor(usableHeight / rows);
+  }
+
+  const col = index % cols;
+  const row = Math.floor(index / cols) % rows;
+
+  const posX = col * (width + gapX);
+  const posY = row * (height + gapY);
+
+  return [`--window-position=${posX},${posY}`, `--window-size=${width},${height}`];
+}
+
 // Single start
 app.post('/api/browser/start', async (req: Request, res: Response) => {
   try {
@@ -318,11 +395,15 @@ app.post('/api/browser/start', async (req: Request, res: Response) => {
 
     const id = profileId || profileNo;
     logger.info(`[UI Request] Đang khởi động profile ${id}...`);
+
+    const launchArgs = getWindowPositionLaunchArgs(activeConnections.size);
+
     const connData = await adsPowerClient.startBrowser({
       profileId,
       profileNo,
       headless: !!headless,
       deleteCache: !!deleteCache,
+      launchArgs,
     });
 
     if (connData?.ws?.puppeteer) {
@@ -389,9 +470,11 @@ app.post('/api/browser/batch-start', async (req: Request, res: Response) => {
     logger.info(`[Batch Action] Bắt đầu mở đồng loạt ${profileIds.length} profiles...`);
     const results: any[] = [];
 
-    for (const id of profileIds) {
+    for (let i = 0; i < profileIds.length; i++) {
+      const id = profileIds[i];
+      const launchArgs = getWindowPositionLaunchArgs(i);
       try {
-        const connData = await adsPowerClient.startBrowser({ profileId: id });
+        const connData = await adsPowerClient.startBrowser({ profileId: id, launchArgs });
         if (connData?.ws?.puppeteer) {
           activeConnections.set(id, { debugPort: connData.debug_port, wsUrl: connData.ws.puppeteer });
           cdpManager.connect(id, connData.ws.puppeteer).catch(() => {});
@@ -450,10 +533,46 @@ app.get('/api/browser/active', async (req: Request, res: Response) => {
   }
 });
 
-// Get all currently active profile IDs from active connection registry
-app.get('/api/browser/active-list', (req: Request, res: Response) => {
-  const activeIds = Array.from(activeConnections.keys());
-  res.json({ activeIds });
+function getActiveProfilesFromProcesses(): Promise<string[]> {
+  return new Promise((resolve) => {
+    if (process.platform !== 'win32') {
+      return resolve([]);
+    }
+    exec('powershell -Command "Get-CimInstance Win32_Process | Where-Object { $_.Name -like \'*sunbrowser*\' -or $_.Name -like \'*chrome*\' } | Select-Object CommandLine | ConvertTo-Json"', { timeout: 3000 }, (err, stdout) => {
+      if (err || !stdout) return resolve([]);
+      try {
+        const procs = JSON.parse(stdout);
+        const list = Array.isArray(procs) ? procs : [procs];
+        const activeUserIds = new Set<string>();
+
+        list.forEach((p: any) => {
+          if (!p.CommandLine) return;
+          const match = p.CommandLine.match(/user-data-dir=.*?[\\\/]cache[\\\/]([a-zA-Z0-9]+)_/i);
+          if (match && match[1]) {
+            activeUserIds.add(match[1]);
+          }
+        });
+
+        resolve(Array.from(activeUserIds));
+      } catch (e) {
+        resolve([]);
+      }
+    });
+  });
+}
+
+// Get all currently active profile IDs from active connection registry and running processes
+app.get('/api/browser/active-list', async (req: Request, res: Response) => {
+  const activeIds = new Set<string>(Array.from(activeConnections.keys()));
+
+  try {
+    const processActiveIds = await getActiveProfilesFromProcesses();
+    processActiveIds.forEach(id => activeIds.add(id));
+  } catch (err: any) {
+    logger.debug(`Error scanning active processes: ${err.message}`);
+  }
+
+  res.json({ activeIds: Array.from(activeIds) });
 });
 
 // ==========================================

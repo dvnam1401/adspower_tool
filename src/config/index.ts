@@ -29,6 +29,16 @@ export interface AppConfig {
   automation: {
     closeSuccessBrowsers: boolean;
   };
+  windowLayout: {
+    enabled: boolean;
+    autoScale: boolean;
+    columns: number;
+    maxRows: number;
+    width: number;
+    height: number;
+    gapX: number;
+    gapY: number;
+  };
   concurrency: {
     maxProfiles: number;
     profileStartTimeoutMs: number;
@@ -74,6 +84,16 @@ const initialConfig: AppConfig = {
   automation: {
     closeSuccessBrowsers: process.env.CLOSE_SUCCESS_BROWSERS !== 'false',
   },
+  windowLayout: {
+    enabled: true,
+    autoScale: true,
+    columns: 4,
+    maxRows: 1,
+    width: 450,
+    height: 700,
+    gapX: 10,
+    gapY: 10,
+  },
   concurrency: {
     maxProfiles: Number(process.env.MAX_CONCURRENT_PROFILES) || 5,
     profileStartTimeoutMs: Number(process.env.PROFILE_START_TIMEOUT_MS) || 30000,
@@ -110,6 +130,16 @@ if (fs.existsSync(configFile)) {
       if (savedData.automation.closeSuccessBrowsers !== undefined) {
         initialConfig.automation.closeSuccessBrowsers = Boolean(savedData.automation.closeSuccessBrowsers);
       }
+    }
+    if (savedData.windowLayout) {
+      if (savedData.windowLayout.enabled !== undefined) initialConfig.windowLayout.enabled = Boolean(savedData.windowLayout.enabled);
+      if (savedData.windowLayout.autoScale !== undefined) initialConfig.windowLayout.autoScale = Boolean(savedData.windowLayout.autoScale);
+      if (savedData.windowLayout.columns) initialConfig.windowLayout.columns = Math.max(1, Number(savedData.windowLayout.columns));
+      if (savedData.windowLayout.maxRows) initialConfig.windowLayout.maxRows = Math.max(1, Number(savedData.windowLayout.maxRows));
+      if (savedData.windowLayout.width) initialConfig.windowLayout.width = Math.max(200, Number(savedData.windowLayout.width));
+      if (savedData.windowLayout.height) initialConfig.windowLayout.height = Math.max(200, Number(savedData.windowLayout.height));
+      if (savedData.windowLayout.gapX !== undefined) initialConfig.windowLayout.gapX = Number(savedData.windowLayout.gapX);
+      if (savedData.windowLayout.gapY !== undefined) initialConfig.windowLayout.gapY = Number(savedData.windowLayout.gapY);
     }
     if (savedData.concurrency?.maxProfiles) {
       initialConfig.concurrency.maxProfiles = Number(savedData.concurrency.maxProfiles);
@@ -155,6 +185,17 @@ export function updateSystemConfig(partial: Partial<AppConfig>): AppConfig {
     if (partial.automation.closeSuccessBrowsers !== undefined) {
       config.automation.closeSuccessBrowsers = Boolean(partial.automation.closeSuccessBrowsers);
     }
+  }
+
+  if (partial.windowLayout) {
+    if (partial.windowLayout.enabled !== undefined) config.windowLayout.enabled = Boolean(partial.windowLayout.enabled);
+    if (partial.windowLayout.autoScale !== undefined) config.windowLayout.autoScale = Boolean(partial.windowLayout.autoScale);
+    if (partial.windowLayout.columns) config.windowLayout.columns = Math.max(1, Number(partial.windowLayout.columns));
+    if (partial.windowLayout.maxRows) config.windowLayout.maxRows = Math.max(1, Number(partial.windowLayout.maxRows));
+    if (partial.windowLayout.width) config.windowLayout.width = Math.max(200, Number(partial.windowLayout.width));
+    if (partial.windowLayout.height) config.windowLayout.height = Math.max(200, Number(partial.windowLayout.height));
+    if (partial.windowLayout.gapX !== undefined) config.windowLayout.gapX = Number(partial.windowLayout.gapX);
+    if (partial.windowLayout.gapY !== undefined) config.windowLayout.gapY = Number(partial.windowLayout.gapY);
   }
 
   if (partial.concurrency) {
