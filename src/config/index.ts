@@ -50,6 +50,16 @@ export interface AppConfig {
   logging: {
     level: string;
   };
+  // Account Hub subsystem — all fields optional; defaults keep legacy behaviour.
+  accountHub?: {
+    enabled: boolean;
+    dbPath: string;
+    sheetSyncEnabled: boolean;
+    adspowerReconcileEnabled: boolean;
+    autoImportEnabled: boolean;
+    autoLoginEnabled: boolean;
+    dryRun: boolean;
+  };
 }
 
 const dbPath = process.env.DATABASE_PATH || './data/adspower_automation.sqlite';

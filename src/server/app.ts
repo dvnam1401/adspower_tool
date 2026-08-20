@@ -20,6 +20,9 @@ import { errorClassifier } from '../recovery/classifier.js';
 import { llmAgentResolver } from '../agent/resolver.js';
 // Phase 7: Workflow Engine
 import { workflowEngine, WORKFLOW_PRESETS } from '../workflow/engine.js';
+// Account Hub subsystem (feature-flagged — see ACCOUNT_HUB_ENABLED)
+import { createAccountHubRouter } from '../account-hub/index.js';
+
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -899,7 +902,15 @@ app.delete('/api/workflow/history', (req: Request, res: Response) => {
   }
 });
 
+// ==========================================
+// ACCOUNT HUB (feature-flagged subsystem)
+// Router is null when ACCOUNT_HUB_ENABLED=false — nothing is registered.
+// ==========================================
+const accountHubRouter = createAccountHubRouter();
+if (accountHubRouter) app.use('/api/account-hub', accountHubRouter);
+
 // Fallback 404 JSON handler for all /api/* routes to prevent serving HTML 404 pages
+
 app.use('/api/*', (req: Request, res: Response) => {
   res.status(404).json({
     success: false,
