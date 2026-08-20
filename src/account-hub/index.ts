@@ -43,6 +43,16 @@ export function createAccountHubRouter(): Router | null {
 
   const router = Router();
 
+  // ---- SSE clients for live push ----
+  const sseClients: Response[] = [];
+
+  function broadcastAccountHub(eventName: string, data: unknown) {
+    const payload = `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
+    for (let i = sseClients.length - 1; i >= 0; i--) {
+      try { sseClients[i].write(payload); } catch { sseClients.splice(i, 1); }
+    }
+  }
+
   // ---- Health endpoint ----
   router.get('/health', (_req: Request, res: Response) => {
     res.json({
@@ -58,8 +68,23 @@ export function createAccountHubRouter(): Router | null {
     });
   });
 
+  // ---- SSE endpoint ----
+  router.get('/events', (req: Request, res: Response) => {
+    res.setHeader('Content-Type',  'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection',    'keep-alive');
+    res.flushHeaders();
+    res.write('event: connected\ndata: {}\n\n');
+
+    sseClients.push(res);
+    req.on('close', () => {
+      const idx = sseClients.indexOf(res);
+      if (idx !== -1) sseClients.splice(idx, 1);
+    });
+  });
+
   // ---- Mount API sub-router ----
-  const apiRouter = buildAccountHubApiRouter(accountSvc, syncJobRepo, auditRepo);
+  const apiRouter = buildAccountHubApiRouter(accountSvc, syncJobRepo, auditRepo, broadcastAccountHub);
   router.use('/', apiRouter);
 
   logger.info('[AccountHub] Subsystem ready.');

@@ -51,8 +51,13 @@ export function buildAccountHubApiRouter(
   accountService: AccountService,
   syncJobRepo: SyncJobRepository,
   auditRepo: AuditLogRepository,
+  broadcast?: (event: string, data: unknown) => void,
 ): Router {
   const router = Router();
+
+  function emit(event: string, data: unknown) {
+    broadcast?.(event, data);
+  }
 
   // ------------------------------------------------------------------
   // GET /accounts
@@ -115,6 +120,7 @@ export function buildAccountHubApiRouter(
         return json400(res, '`version` (number) is required for optimistic locking');
       }
       const account = accountService.update(id, dto, actor(req));
+      emit('account_updated', { id: account.id });
       json200(res, account);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -133,6 +139,7 @@ export function buildAccountHubApiRouter(
       const { version } = req.body as { version?: number };
       if (version === undefined) return json400(res, '`version` is required');
       const account = accountService.markDie(id, version, actor(req));
+      emit('account_updated', { id: account.id });
       json200(res, account);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Account Hub</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- ===================== NAV ===================== -->
+  <nav class="ah-nav">
+    <div class="ah-nav-brand">
+      <a href="/">🏠 Trang chính</a>
+      <span class="ah-nav-sep">›</span>
+      <strong>Account Hub</strong>
+    </div>
+    <div class="ah-nav-right">
+      <span id="ah-dry-run-badge" class="badge badge-warn" title="Dry-run: không ghi thật">
+        🧪 Dry-run
+      </span>
+      <button id="btn-reload" class="btn btn-sm">↻ Làm mới</button>
+      <button id="btn-add-account" class="btn btn-sm btn-primary">+ Thêm tài khoản</button>
+    </div>
+  </nav>
+
+  <!-- ===================== TOOLBAR ===================== -->
+  <div class="ah-toolbar">
+    <input id="search-input" type="text" placeholder="Tìm tên, login, email, YouTube…" class="ah-search" />
+    <select id="filter-account-status" class="ah-select">
+      <option value="">Tất cả trạng thái</option>
+      <option value="LIVE">LIVE</option>
+      <option value="DIE">DIE</option>
+      <option value="CHECKING">CHECKING</option>
+      <option value="LOCKED">LOCKED</option>
+      <option value="NEED_LOGIN">NEED_LOGIN</option>
+      <option value="ERROR">ERROR</option>
+    </select>
+    <select id="filter-adspower-status" class="ah-select">
+      <option value="">Tất cả AdsPower</option>
+      <option value="NOT_IMPORTED">NOT_IMPORTED</option>
+      <option value="ACTIVE">ACTIVE</option>
+      <option value="MISSING">MISSING</option>
+      <option value="DELETED">DELETED</option>
+      <option value="SYNC_ERROR">SYNC_ERROR</option>
+    </select>
+    <button id="btn-filter-die-pending" class="btn btn-sm btn-warn">⚡ DIE chưa xóa</button>
+    <span id="ah-total-count" class="ah-count-label"></span>
+  </div>
+
+  <!-- ===================== TABLE ===================== -->
+  <div class="ah-table-wrap">
+    <table class="ah-table" id="accounts-table">
+      <thead>
+        <tr>
+          <th class="col-check"><input type="checkbox" id="select-all" /></th>
+          <th class="col-name sortable" data-sort="profile_name">Tên Profile ↕</th>
+          <th class="col-status">Trạng thái</th>
+          <th class="col-adspower">AdsPower</th>
+          <th class="col-login">Login ID</th>
+          <th class="col-hotmail">Hotmail</th>
+          <th class="col-yt">YouTube</th>
+          <th class="col-sync">Đồng bộ gần nhất</th>
+          <th class="col-actions">Thao tác</th>
+        </tr>
+      </thead>
+      <tbody id="accounts-tbody">
+        <tr class="ah-loading-row">
+          <td colspan="9">⏳ Đang tải…</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ===================== PAGINATION ===================== -->
+  <div class="ah-pagination" id="pagination-bar"></div>
+
+  <!-- ===================== ACCOUNT DETAIL MODAL ===================== -->
+  <div id="account-modal" class="ah-modal hidden">
+    <div class="ah-modal-backdrop"></div>
+    <div class="ah-modal-box">
+      <div class="ah-modal-header">
+        <h2 id="modal-title">Chi tiết tài khoản</h2>
+        <button class="btn-icon ah-modal-close" id="modal-close">✕</button>
+      </div>
+
+      <div class="ah-modal-body">
+        <!-- Status badges -->
+        <div class="ah-status-row" id="modal-status-row"></div>
+
+        <!-- Fields grid -->
+        <div class="ah-field-grid" id="modal-fields">
+          <!-- Rendered by JS -->
+        </div>
+
+        <!-- Audit history -->
+        <details class="ah-history-section">
+          <summary>📋 Lịch sử thay đổi</summary>
+          <div id="modal-history-list" class="ah-history-list"></div>
+        </details>
+      </div>
+
+      <div class="ah-modal-footer">
+        <div id="modal-edit-bar" class="hidden">
+          <button id="btn-save-draft" class="btn">💾 Save draft</button>
+          <button id="btn-save-sync" class="btn btn-primary">🔄 Save &amp; Sync</button>
+          <button id="btn-cancel-edit" class="btn btn-ghost">Huỷ</button>
+        </div>
+        <div id="modal-view-bar">
+          <button id="btn-edit-account" class="btn btn-primary">✏️ Edit</button>
+          <button id="btn-mark-die" class="btn btn-danger">☠️ Mark DIE</button>
+          <button id="btn-close-modal" class="btn btn-ghost">Đóng</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== ADD ACCOUNT MODAL ===================== -->
+  <div id="add-modal" class="ah-modal hidden">
+    <div class="ah-modal-backdrop"></div>
+    <div class="ah-modal-box ah-modal-box--sm">
+      <div class="ah-modal-header">
+        <h2>Thêm tài khoản mới</h2>
+        <button class="btn-icon ah-modal-close" data-modal="add-modal">✕</button>
+      </div>
+      <div class="ah-modal-body">
+        <form id="add-account-form">
+          <label class="ah-label">Tên Profile <span class="req">*</span>
+            <input name="profileName" class="ah-input" required placeholder="Ví dụ: NV001 - Nguyen Van A" />
+          </label>
+          <label class="ah-label">Login ID / Email
+            <input name="loginId" class="ah-input" placeholder="email@gmail.com" />
+          </label>
+          <label class="ah-label">Hotmail
+            <input name="hotmail" class="ah-input" placeholder="backup@hotmail.com" />
+          </label>
+          <label class="ah-label">YouTube Channel URL
+            <input name="youtubeChannelUrl" class="ah-input" placeholder="https://youtube.com/c/..." />
+          </label>
+          <label class="ah-label">Gán cho
+            <input name="assignedTo" class="ah-input" placeholder="username" />
+          </label>
+        </form>
+      </div>
+      <div class="ah-modal-footer">
+        <button id="btn-add-submit" class="btn btn-primary">Tạo tài khoản</button>
+        <button class="btn btn-ghost ah-modal-close" data-modal="add-modal">Huỷ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== TOAST ===================== -->
+  <div id="ah-toast-container" class="ah-toast-container"></div>
+
+  <script src="app.js" type="module"></script>
+</body>
+</html>
