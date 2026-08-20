@@ -1,0 +1,62 @@
+{
+  "name": "adspower-hybrid-automation",
+  "version": "1.0.0",
+  "description": "Hybrid Agentic Automation system for AdsPower with self-healing skills and 3-tier error recovery",
+  "main": "dist/desktop/main.js",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.ts",
+    "desktop": "npm run build && electron .",
+    "pack:win": "npm run build && electron-packager . \"AdsPower Hybrid Studio\" --platform=win32 --arch=x64 --out=release --overwrite --ignore=\"^/src\"",
+    "dev": "tsx watch src/index.ts",
+    "test:adspower": "tsx src/adspower/test-connection.ts",
+    "cli": "tsx src/cli/index.ts",
+    "run-fb-batch": "tsx src/automation/run-fb-batch.ts"
+  },
+  "keywords": [
+    "adspower",
+    "playwright",
+    "automation",
+    "agentic",
+    "self-healing",
+    "cdp"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^13.1.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "playwright-core": "^1.50.1",
+    "winston": "^3.17.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.4",
+    "electron": "^34.5.8",
+    "electron-builder": "^25.1.8",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  },
+  "build": {
+    "appId": "com.adspower.hybrid.studio",
+    "productName": "AdsPower Hybrid Studio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "dir",
+      "forceCodeSigning": false
+    }
+  }
+}

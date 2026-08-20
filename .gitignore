@@ -1,0 +1,69 @@
+# Node Dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Build Outputs
+dist/
+build/
+out/
+.cache/
+*.tsbuildinfo
+.eslintcache
+
+# Environment & Sensitive Credentials
+.env
+.env.local
+.env.*.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.pem
+*.key
+*.cert
+*.crt
+credentials.json
+token*.json
+accounts.json
+cookies*.json
+
+# Runtime Configuration & User Secrets
+data/system_config.json
+data/users.json
+data/healing_log.json
+data/accounts.json
+data/cookies.json
+
+# Databases & Runtime Data
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-journal
+data/*.sqlite*
+data/*.db*
+data/cache/
+data/sessions/
+
+# AdsPower / Browser Automation Runtime & Temporary Files
+session_data/
+browser_profiles/
+temp/
+tmp/
+downloads/
+screenshots/
+videos/
+logs/
+*.log
+
+# Operating System & IDE Files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+*.swp
+*.swo

@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="vi" class="dark h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AdsPower Hybrid Automation Studio</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              400: '#818cf8',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+              900: '#1e1b4b',
+              950: '#0f0e26',
+            },
+            surface: {
+              50: '#f8fafc',
+              800: '#1e293b',
+              850: '#172033',
+              900: '#0f172a',
+              950: '#090d16',
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Fira Code', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Phosphor Icons -->
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-surface-950 text-slate-100 h-full flex overflow-hidden font-sans selection:bg-brand-500 selection:text-white antialiased">
+
+  <!-- Mobile Menu Overlay -->
+  <div id="mobile-overlay" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden md:hidden"></div>
+
+  <!-- Sidebar Navigation -->
+  <aside id="sidebar" class="fixed md:static inset-y-0 left-0 z-50 w-64 bg-surface-900/95 md:bg-surface-900 border-r border-slate-800/80 flex flex-col justify-between transition-transform duration-300 -translate-x-full md:translate-x-0 shadow-2xl md:shadow-none">
+    
+    <!-- Sidebar Header -->
+    <div>
+      <div class="h-16 px-5 flex items-center justify-between border-b border-slate-800/80">
+        <div class="flex items-center space-x-3">
+          <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-violet-500 flex items-center justify-center shadow-lg shadow-brand-500/25">
+            <i class="ph-bold ph-robot text-xl text-white"></i>
+          </div>
+          <div>
+            <span class="font-extrabold text-base tracking-tight bg-gradient-to-r from-white via-slate-100 to-brand-400 bg-clip-text text-transparent">AdsPower</span>
+            <span class="text-xs px-1.5 py-0.5 ml-1 rounded font-bold bg-brand-500/20 text-brand-400 border border-brand-500/30">v2.0</span>
+          </div>
+        </div>
+        <!-- Close button on mobile -->
+        <button id="btn-close-sidebar" class="md:hidden text-slate-400 hover:text-white p-1">
+          <i class="ph-bold ph-x text-xl"></i>
+        </button>
+      </div>
+
+      <!-- Navigation Links -->
+      <nav class="p-3 space-y-1.5">
+        <button class="nav-item active w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-profiles">
+          <i class="ph-bold ph-browsers text-lg"></i>
+          <span>Quản Lý Profiles</span>
+          <span id="badge-nav-profiles" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 font-mono">0</span>
+        </button>
+
+        <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-skills">
+          <i class="ph-bold ph-brain text-lg"></i>
+          <span>Self-Healing Skills</span>
+          <span id="badge-nav-skills" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20 font-mono">3</span>
+        </button>
+
+        <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-healing">
+          <i class="ph-bold ph-heartbeat text-lg"></i>
+          <span>Self-Healing Monitor</span>
+          <span id="badge-nav-healing" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-mono">0</span>
+        </button>
+
+        <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-workflow">
+          <i class="ph-bold ph-flow-arrow text-lg"></i>
+          <span>Workflow Runner</span>
+          <span id="badge-nav-workflow" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 font-mono">idle</span>
+        </button>
+
+        <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-logs">
+          <i class="ph-bold ph-terminal-window text-lg"></i>
+          <span>Live Logs & Console</span>
+          <span class="ml-auto w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        </button>
+
+        <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-settings">
+          <i class="ph-bold ph-gear text-lg"></i>
+          <span>Cấu Hình (Settings)</span>
+        </button>
+      </nav>
+    </div>
+
+    <!-- Sidebar Footer / System Info -->
+    <div class="p-4 border-t border-slate-800/80 bg-surface-950/50">
+      <div class="flex items-center justify-between text-xs text-slate-400 mb-2">
+        <span class="font-medium">AdsPower Local API</span>
+        <span id="sidebar-api-port" class="font-mono text-slate-500">Port 50325</span>
+      </div>
+      <div class="flex items-center space-x-2 px-3 py-2 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+        <span id="sidebar-api-dot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+        <span id="sidebar-api-status" class="font-semibold text-slate-300">Đang kiểm tra...</span>
+      </div>
+
+      <!-- User Account Badge & Logout -->
+      <div class="mt-3 pt-3 border-t border-slate-800/80 flex items-center justify-between">
+        <div class="flex items-center space-x-2 min-w-0">
+          <div class="w-7 h-7 rounded-full bg-brand-600 flex items-center justify-center text-xs font-bold text-white uppercase shrink-0" id="sidebar-user-avatar">A</div>
+          <span class="text-xs font-semibold text-slate-200 truncate" id="sidebar-username">admin</span>
+        </div>
+        <button id="btn-logout" title="Đăng xuất khỏi hệ thống" class="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 transition">
+          <i class="ph-bold ph-sign-out text-base"></i>
+        </button>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ========================================== -->
+  <!-- FULL SCREEN LOGIN CONTAINER                -->
+  <!-- ========================================== -->
+  <div id="screen-login" class="fixed inset-0 z-50 bg-surface-950 flex items-center justify-center p-4">
+    <div class="w-full max-w-md p-8 rounded-2xl bg-surface-900 border border-slate-800 shadow-2xl space-y-6">
+      
+      <div class="text-center space-y-2">
+        <div class="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-brand-600 via-indigo-500 to-violet-500 flex items-center justify-center shadow-xl shadow-brand-500/30">
+          <i class="ph-bold ph-robot text-3xl text-white"></i>
+        </div>
+        <h2 class="text-xl font-extrabold text-white tracking-tight">AdsPower Hybrid Studio</h2>
+        <p class="text-xs text-slate-400">Vui lòng đăng nhập tài khoản hệ thống để tiếp tục</p>
+      </div>
+
+      <form id="form-login" class="space-y-4">
+        <div id="login-error" class="hidden p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-medium text-center"></div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1.5">Tên Đăng Nhập</label>
+          <div class="relative">
+            <i class="ph-bold ph-user absolute left-3 top-2.5 text-slate-500 text-sm"></i>
+            <input type="text" id="login-username" value="admin" required placeholder="Nhập username..." class="w-full pl-9 pr-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 font-medium">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1.5">Mật Khẩu</label>
+          <div class="relative">
+            <i class="ph-bold ph-lock absolute left-3 top-2.5 text-slate-500 text-sm"></i>
+            <input type="password" id="login-password" value="admin123" required placeholder="Nhập password..." class="w-full pl-9 pr-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500 font-medium">
+          </div>
+        </div>
+
+        <button type="submit" id="btn-submit-login" class="w-full py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold transition shadow-lg shadow-brand-500/25 active:scale-95 flex items-center justify-center space-x-2">
+          <span>Đăng Nhập Hệ Thống</span>
+          <i class="ph-bold ph-arrow-right text-sm"></i>
+        </button>
+      </form>
+
+      <div class="pt-2 text-center border-t border-slate-800/80">
+        <p class="text-[11px] text-slate-500">Tài khoản mặc định: <span class="font-mono text-slate-400 font-bold">admin</span> | Mật khẩu: <span class="font-mono text-slate-400 font-bold">admin123</span></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Content Area -->
+  <div class="flex-1 flex flex-col min-w-0 overflow-hidden bg-gradient-to-b from-surface-900 to-surface-950">
+    
+    <!-- Top Header -->
+    <header class="h-16 px-4 sm:px-6 border-b border-slate-800/80 bg-surface-900/60 backdrop-blur-md flex items-center justify-between shrink-0 z-10">
+      <div class="flex items-center space-x-3">
+        <!-- Mobile menu toggle -->
+        <button id="btn-toggle-sidebar" class="md:hidden p-2 rounded-xl bg-slate-800 text-slate-300 hover:text-white">
+          <i class="ph-bold ph-list text-xl"></i>
+        </button>
+        <!-- Page Title & Breadcrumb -->
+        <div>
+          <h2 id="header-page-title" class="text-base sm:text-lg font-bold text-white leading-tight">Quản Lý AdsPower Profiles</h2>
+          <p id="header-page-desc" class="text-xs text-slate-400 hidden sm:block">Điều khiển và tự động hóa đa profile qua Playwright CDP & Self-Healing Agent</p>
+        </div>
+      </div>
+
+      <!-- Header Actions & Metrics -->
+      <div class="flex items-center space-x-3">
+        <!-- LLM Model Badge & Quick Settings Trigger -->
+        <button id="btn-header-settings" class="flex items-center space-x-2 px-3 py-1.5 rounded-xl bg-brand-500/10 hover:bg-brand-500/20 border border-brand-500/20 text-xs text-brand-300 transition" title="Bấm để mở Cấu hình Hệ thống & AI 9router">
+          <i class="ph-bold ph-sparkle text-brand-400"></i>
+          <span id="header-llm-model">9router / Gemini</span>
+          <i class="ph-bold ph-gear text-slate-400 ml-1"></i>
+        </button>
+
+        <!-- Refresh Button -->
+        <button id="btn-refresh" class="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700/80 shadow-sm transition active:scale-95" title="Làm mới">
+          <i class="ph-bold ph-arrows-clockwise text-lg"></i>
+        </button>
+      </div>
+    </header>
+
+    <!-- Scrollable Workspace Body -->
+    <main class="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6">
+
+      <!-- ========================================== -->
+      <!-- TAB 1: PROFILES MANAGEMENT                 -->
+      <!-- ========================================== -->
+      <section id="tab-profiles" class="tab-pane block space-y-5">
+        
+        <!-- Summary Stats Cards -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+          <!-- Stat 1 -->
+          <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-slate-800/80 backdrop-blur shadow-sm">
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              <span>Tổng Profiles</span>
+              <div class="w-8 h-8 rounded-lg bg-brand-500/10 text-brand-400 flex items-center justify-center">
+                <i class="ph-bold ph-users-three text-lg"></i>
+              </div>
+            </div>
+            <div class="mt-2 flex items-baseline space-x-2">
+              <span id="stat-total-profiles" class="text-2xl sm:text-3xl font-black text-white font-mono">--</span>
+              <span class="text-xs text-slate-500">profile</span>
+            </div>
+          </div>
+
+          <!-- Stat 2 -->
+          <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-slate-800/80 backdrop-blur shadow-sm">
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              <span>Đang Mở (CDP)</span>
+              <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center">
+                <i class="ph-bold ph-browser text-lg"></i>
+              </div>
+            </div>
+            <div class="mt-2 flex items-baseline space-x-2">
+              <span id="stat-active-profiles" class="text-2xl sm:text-3xl font-black text-emerald-400 font-mono">0</span>
+              <span class="text-xs text-slate-500">active</span>
+            </div>
+          </div>
+
+          <!-- Stat 3 -->
+          <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-slate-800/80 backdrop-blur shadow-sm">
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              <span>Nhóm Profile</span>
+              <div class="w-8 h-8 rounded-lg bg-violet-500/10 text-violet-400 flex items-center justify-center">
+                <i class="ph-bold ph-folders text-lg"></i>
+              </div>
+            </div>
+            <div class="mt-2 flex items-baseline space-x-2">
+              <span id="stat-total-groups" class="text-2xl sm:text-3xl font-black text-violet-400 font-mono">--</span>
+              <span class="text-xs text-slate-500">nhóm</span>
+            </div>
+          </div>
+
+          <!-- Stat 4 -->
+          <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-slate-800/80 backdrop-blur shadow-sm">
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+              <span>Tự Sửa Lỗi</span>
+              <div class="w-8 h-8 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center">
+                <i class="ph-bold ph-brain text-lg"></i>
+              </div>
+            </div>
+            <div class="mt-2 flex items-baseline space-x-2">
+              <span id="stat-skills-count" class="text-2xl sm:text-3xl font-black text-amber-400 font-mono">3</span>
+              <span class="text-xs text-slate-500">skills</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Filter & Search Toolbar -->
+        <div class="p-3 sm:p-4 rounded-2xl bg-surface-900/80 border border-slate-800/90 flex flex-col lg:flex-row gap-3 items-stretch lg:items-center justify-between">
+          
+          <!-- Search box -->
+          <div class="flex-1 relative">
+            <i class="ph ph-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-lg"></i>
+            <input type="text" id="input-search" placeholder="Tìm theo tên, Serial, User ID, IP, Group..." class="w-full pl-10 pr-4 py-2 bg-surface-950/90 border border-slate-800 rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500 transition">
+          </div>
+
+          <!-- Filter selects -->
+          <div class="flex items-center space-x-2.5 overflow-x-auto pb-1 lg:pb-0">
+            <!-- Group filter -->
+            <select id="select-group" class="px-3 py-2 bg-surface-950/90 border border-slate-800 rounded-xl text-sm text-slate-300 focus:outline-none focus:border-brand-500 shrink-0">
+              <option value="">Tất cả nhóm</option>
+            </select>
+
+            <!-- Status filter -->
+            <select id="select-status" class="px-3 py-2 bg-surface-950/90 border border-slate-800 rounded-xl text-sm text-slate-300 focus:outline-none focus:border-brand-500 shrink-0">
+              <option value="all">Tất cả trạng thái</option>
+              <option value="active">Đang mở (Active)</option>
+              <option value="inactive">Đã đóng (Inactive)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Batch Action Bar (Appears when rows selected) -->
+        <div id="batch-action-bar" class="hidden p-3 rounded-xl bg-brand-950/80 border border-brand-500/30 flex items-center justify-between animate-fadeIn">
+          <div class="flex items-center space-x-2 text-sm text-brand-200">
+            <i class="ph-bold ph-check-square text-lg text-brand-400"></i>
+            <span>Đã chọn <strong id="selected-count" class="font-bold text-white">0</strong> profiles</span>
+          </div>
+          <div class="flex items-center space-x-3">
+            <label class="flex items-center space-x-1.5 text-xs text-slate-300 cursor-pointer bg-slate-900 px-2.5 py-1.5 rounded-lg border border-slate-800">
+              <input type="checkbox" id="chk-auto-close-success" checked class="rounded bg-surface-950 border-slate-700 text-brand-500 focus:ring-0">
+              <span title="Tự động đóng các cửa sổ profile đã login thành công, chỉ giữ lại trình duyệt bị lỗi/checkpoint để bạn xử lý">Tự đóng cửa sổ thành công</span>
+            </label>
+            <button id="btn-batch-fb-login" class="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-brand-600 via-indigo-600 to-violet-600 hover:from-brand-500 hover:to-violet-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-brand-500/25">
+              <i class="ph-bold ph-lightning"></i> 🚀 Auto Login Facebook (Đa Luồng)
+            </button>
+            <button id="btn-batch-start" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-bold transition flex items-center gap-1.5 border border-slate-700">
+              <i class="ph-bold ph-play"></i> Mở Profiles
+            </button>
+            <button id="btn-batch-stop" class="px-3 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 text-xs font-bold transition flex items-center gap-1.5">
+              <i class="ph-bold ph-stop"></i> Đóng Hàng Loạt
+            </button>
+            <button id="btn-batch-deselect" class="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs transition">
+              Bỏ chọn
+            </button>
+          </div>
+        </div>
+
+        <!-- Profiles Table Container -->
+        <div class="rounded-2xl border border-slate-800/90 bg-surface-900/60 backdrop-blur overflow-hidden shadow-2xl flex flex-col">
+          <div class="overflow-x-auto flex-1">
+            <table class="w-full text-left text-sm text-slate-300">
+              <thead class="bg-surface-950/80 text-xs uppercase font-semibold text-slate-400 border-b border-slate-800">
+                <tr>
+                  <th class="px-4 py-3.5 w-10 text-center">
+                    <input type="checkbox" id="chk-select-all" class="rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-0 cursor-pointer">
+                  </th>
+                  <th class="px-4 py-3.5 w-20">Serial</th>
+                  <th class="px-4 py-3.5">Tên Profile & ID</th>
+                  <th class="px-4 py-3.5">Nhóm</th>
+                  <th class="px-4 py-3.5">Proxy / Vị Trí</th>
+                  <th class="px-4 py-3.5 text-center">Trạng Thái</th>
+                  <th class="px-4 py-3.5 text-right">Thao Tác</th>
+                </tr>
+              </thead>
+              <tbody id="profiles-tbody" class="divide-y divide-slate-800/60 font-sans text-xs">
+                <!-- Injected via JavaScript -->
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Pagination & Stats Footer -->
+          <div class="px-4 py-3 bg-surface-950/90 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <div class="flex items-center space-x-2 text-slate-400">
+              <span id="pagination-info">Đang tải profiles...</span>
+              <span id="pagination-loading" class="hidden text-brand-400 inline-flex items-center gap-1 font-mono text-[11px]">
+                <i class="ph-bold ph-spinner animate-spin"></i> Đang tải thêm trang...
+              </span>
+            </div>
+
+            <div class="flex items-center space-x-3">
+              <!-- Page Size Select -->
+              <div class="flex items-center space-x-1.5 text-slate-400">
+                <span>Mỗi trang:</span>
+                <select id="select-page-size" class="px-2 py-1 bg-surface-900 border border-slate-800 rounded-lg text-slate-200 text-xs focus:outline-none focus:border-brand-500">
+                  <option value="20">20</option>
+                  <option value="50" selected>50</option>
+                  <option value="100">100</option>
+                  <option value="all">Tất cả (Toàn bộ)</option>
+                </select>
+              </div>
+
+              <!-- Pagination Navigation Buttons -->
+              <div class="flex items-center space-x-1">
+                <button id="btn-page-prev" class="px-2.5 py-1 rounded-lg bg-surface-900 hover:bg-slate-800 border border-slate-800 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition" title="Trang trước">
+                  <i class="ph-bold ph-caret-left"></i>
+                </button>
+                <span id="pagination-page-label" class="px-2.5 py-1 font-mono font-bold text-slate-200 bg-surface-900 border border-slate-800 rounded-lg">1 / 1</span>
+                <button id="btn-page-next" class="px-2.5 py-1 rounded-lg bg-surface-900 hover:bg-slate-800 border border-slate-800 text-slate-300 disabled:opacity-40 disabled:cursor-not-allowed transition" title="Trang sau">
+                  <i class="ph-bold ph-caret-right"></i>
+                </button>
+              </div>
+
+              <!-- Fetch All Button -->
+              <button id="btn-fetch-all-profiles" class="px-2.5 py-1 rounded-lg bg-brand-600/20 hover:bg-brand-600/40 text-brand-300 border border-brand-500/30 text-xs font-semibold transition flex items-center gap-1" title="Tải toàn bộ profile từ AdsPower">
+                <i class="ph-bold ph-cloud-arrow-down"></i> Tải hết
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- ========================================== -->
+      <!-- TAB 2: SELF-HEALING SKILL LIBRARY          -->
+      <!-- ========================================== -->
+      <section id="tab-skills" class="tab-pane hidden space-y-5">
+        <div class="p-5 sm:p-6 rounded-2xl bg-surface-900/80 border border-slate-800/90 shadow-xl space-y-5">
+          
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+            <div>
+              <h3 class="text-base font-bold text-white flex items-center gap-2">
+                <i class="ph-bold ph-brain text-amber-400"></i>
+                Kho Lưu Trữ Kỹ Năng Tự Sửa Lỗi (Self-Healing Skills)
+              </h3>
+              <p class="text-xs text-slate-400 mt-1">Chuỗi selector được tối ưu và thăng cấp tự động sau mỗi lượt chạy thành công.</p>
+            </div>
+            <button id="btn-add-skill-modal" class="px-3.5 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-brand-500/20">
+              <i class="ph-bold ph-plus"></i> Thêm Skill Mới
+            </button>
+          </div>
+
+          <!-- Skills Search & Filter Bar -->
+          <div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
+            <div class="flex-1 relative">
+              <i class="ph ph-magnifying-glass absolute left-3.5 top-2.5 text-slate-400 text-base"></i>
+              <input type="text" id="input-skill-search" placeholder="Tìm theo Website, Action Type, Selector..." class="w-full pl-9 pr-4 py-1.5 bg-surface-950/90 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500 transition">
+            </div>
+            <select id="select-skill-status" class="px-3 py-1.5 bg-surface-950/90 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-brand-500 shrink-0">
+              <option value="all">Tất cả trạng thái</option>
+              <option value="verified">Verified (Chính thức)</option>
+              <option value="testing">Testing (Thử nghiệm)</option>
+              <option value="candidate">Candidate (Chờ duyệt)</option>
+              <option value="rollback">Rollback (Bị trả về)</option>
+            </select>
+          </div>
+
+          <!-- Skills Cards Container -->
+          <div id="skills-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <!-- Injected via JS -->
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- TAB 5: LIVE LOGS & TELEMETRY               -->
+      <!-- ========================================== -->
+      <!-- ==========================================  -->
+      <!-- TAB: SELF-HEALING MONITOR (Phase 6)        -->
+      <!-- ==========================================  -->
+      <section id="tab-healing" class="tab-pane hidden space-y-5">
+
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+          <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-slate-800/80 backdrop-blur shadow-sm">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <i class="ph-bold ph-heartbeat text-emerald-400"></i> Tổng Events
+            </div>
+            <div class="mt-2 text-2xl font-black text-white font-mono" id="heal-stat-total">0</div>
+          </div>
+          <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-slate-800/80 backdrop-blur shadow-sm">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <i class="ph-bold ph-database text-brand-400"></i> Skill Library Hit
+            </div>
+            <div class="mt-2 text-2xl font-black text-brand-400 font-mono" id="heal-stat-skill-hit">0</div>
+          </div>
+          <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-slate-800/80 backdrop-blur shadow-sm">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <i class="ph-bold ph-robot text-violet-400"></i> LLM Healed
+            </div>
+            <div class="mt-2 text-2xl font-black text-violet-400 font-mono" id="heal-stat-llm">0</div>
+          </div>
+          <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-slate-800/80 backdrop-blur shadow-sm">
+            <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <i class="ph-bold ph-warning text-rose-400"></i> Escalated
+            </div>
+            <div class="mt-2 text-2xl font-black text-rose-400 font-mono" id="heal-stat-escalated">0</div>
+          </div>
+          <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-emerald-500/20 backdrop-blur shadow-sm">
+            <div class="text-xs font-semibold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+              <i class="ph-bold ph-coins text-emerald-400"></i> Token Tiết Kiệm
+            </div>
+            <div class="mt-2 text-2xl font-black text-emerald-400 font-mono" id="heal-stat-saved">0</div>
+          </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="rounded-2xl bg-surface-900/80 border border-slate-800/90 shadow-xl overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-800 flex items-center justify-between gap-3 flex-wrap">
+            <div class="flex items-center gap-2">
+              <i class="ph-bold ph-heartbeat text-emerald-400"></i>
+              <span class="text-sm font-bold text-white">Lịch Sử Self-Healing Events</span>
+              <span class="text-xs text-slate-500">(Real-time qua SSE)</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <!-- Test Classify -->
+              <button id="btn-test-classify" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-brand-500/10 hover:bg-brand-500/20 border border-brand-500/20 text-brand-300 text-xs font-semibold transition">
+                <i class="ph-bold ph-flask text-sm"></i> Test Phân Loại Lỗi
+              </button>
+              <!-- Trigger LLM Agent -->
+              <button id="btn-trigger-resolver" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-violet-500/10 hover:bg-violet-500/20 border border-violet-500/20 text-violet-300 text-xs font-semibold transition">
+                <i class="ph-bold ph-robot text-sm"></i> Trigger LLM Agent
+              </button>
+              <!-- Clear Log -->
+              <button id="btn-clear-healing" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 text-xs font-semibold transition">
+                <i class="ph-bold ph-trash text-sm"></i> Xóa Log
+              </button>
+              <!-- Refresh -->
+              <button id="btn-refresh-healing" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition">
+                <i class="ph-bold ph-arrows-clockwise text-sm"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Healing Events Table -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="border-b border-slate-800 bg-surface-950/60">
+                  <th class="px-4 py-2.5 text-left font-semibold text-slate-400 uppercase tracking-wider">Thời Gian</th>
+                  <th class="px-4 py-2.5 text-left font-semibold text-slate-400 uppercase tracking-wider">Site / Action</th>
+                  <th class="px-4 py-2.5 text-left font-semibold text-slate-400 uppercase tracking-wider">Tier</th>
+                  <th class="px-4 py-2.5 text-left font-semibold text-slate-400 uppercase tracking-wider">Kết Quả</th>
+                  <th class="px-4 py-2.5 text-left font-semibold text-slate-400 uppercase tracking-wider">Selector Cũ → Mới</th>
+                  <th class="px-4 py-2.5 text-right font-semibold text-slate-400 uppercase tracking-wider">Tokens</th>
+                </tr>
+              </thead>
+              <tbody id="healing-events-tbody" class="divide-y divide-slate-800/50">
+                <tr>
+                  <td colspan="6" class="px-4 py-10 text-center text-slate-500">
+                    <i class="ph-bold ph-heartbeat text-3xl block mx-auto mb-2 text-slate-600"></i>
+                    Chưa có healing events nào. Khi hệ thống tự sửa lỗi, events sẽ hiển thị tại đây.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Test Classify Panel (hidden by default) -->
+        <div id="panel-test-classify" class="hidden rounded-2xl bg-surface-900/80 border border-brand-500/20 shadow-xl p-5 space-y-4">
+          <h4 class="text-sm font-bold text-white flex items-center gap-2">
+            <i class="ph-bold ph-flask text-brand-400"></i> Test Phân Loại Lỗi 3 Tầng
+          </h4>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Error Message</label>
+              <textarea id="classify-error-msg" rows="3" placeholder="e.g. waiting for selector 'button[name=login]' failed..." class="w-full px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-slate-100 font-mono focus:outline-none focus:border-brand-500 resize-none"></textarea>
+            </div>
+            <div class="space-y-3">
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">Site (tùy chọn)</label>
+                <input type="text" id="classify-site" placeholder="facebook.com" class="w-full px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-slate-100 focus:outline-none focus:border-brand-500">
+              </div>
+              <button id="btn-do-classify" class="w-full py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold transition">
+                Phân Loại Ngay
+              </button>
+            </div>
+          </div>
+          <div id="classify-result" class="hidden p-3 rounded-xl bg-surface-950 border border-slate-800 text-xs font-mono text-slate-300"></div>
+        </div>
+
+      </section>
+
+      <!-- ==========================================  -->
+      <!-- TAB: WORKFLOW RUNNER (Phase 7)             -->
+      <!-- ==========================================  -->
+      <section id="tab-workflow" class="tab-pane hidden space-y-5">
+
+        <!-- Engine Status Bar -->
+        <div class="flex items-center justify-between p-4 rounded-2xl bg-surface-900/80 border border-slate-800/90 shadow-sm">
+          <div class="flex items-center gap-3">
+            <div id="wf-engine-dot" class="w-3 h-3 rounded-full bg-slate-600"></div>
+            <span class="text-sm font-bold text-white">Workflow Engine</span>
+            <span id="wf-engine-state-badge" class="text-xs px-2.5 py-0.5 rounded-full font-semibold bg-slate-700 text-slate-300">IDLE</span>
+          </div>
+          <div class="flex items-center gap-2 text-xs text-slate-400">
+            <span>Running: <span id="wf-count-running" class="font-mono text-white font-bold">0</span></span>
+            <span class="text-slate-700">|</span>
+            <span>Done: <span id="wf-count-done" class="font-mono text-emerald-400 font-bold">0</span></span>
+            <span class="text-slate-700">|</span>
+            <span>Failed: <span id="wf-count-failed" class="font-mono text-rose-400 font-bold">0</span></span>
+            <span class="text-slate-700">|</span>
+            <span>Pending: <span id="wf-count-pending" class="font-mono text-amber-400 font-bold">0</span></span>
+          </div>
+        </div>
+
+        <!-- Main Grid: Config + Profile Selection -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+
+          <!-- Left: Config Panel -->
+          <div class="rounded-2xl bg-surface-900/80 border border-slate-800/90 shadow-xl p-5 space-y-4">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <i class="ph-bold ph-sliders text-brand-400"></i> Cấu Hình Workflow
+            </h3>
+
+            <!-- Workflow Preset -->
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Workflow Preset</label>
+              <select id="wf-preset-select" class="w-full px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                <option value="facebook_login">Facebook Auto Login (3 steps)</option>
+                <option value="google_search">Google Search Test (2 steps)</option>
+              </select>
+            </div>
+
+            <!-- Concurrency Slider -->
+            <div>
+              <div class="flex justify-between mb-1.5">
+                <label class="text-xs font-semibold text-slate-400">Concurrency Limit</label>
+                <span id="wf-concurrency-val" class="text-xs font-mono font-bold text-brand-400">5</span>
+              </div>
+              <input type="range" id="wf-concurrency" min="1" max="10" value="5" class="w-full accent-brand-500 cursor-pointer">
+              <div class="flex justify-between text-[10px] text-slate-600 mt-0.5">
+                <span>1 (tuần tự)</span>
+                <span>10 (tối đa)</span>
+              </div>
+            </div>
+
+            <!-- Control Buttons -->
+            <div class="space-y-2 pt-2 border-t border-slate-800">
+              <button id="btn-wf-run" class="w-full py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition shadow-md shadow-brand-500/25 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
+                <i class="ph-bold ph-play text-sm"></i> Run Batch Workflow
+              </button>
+              <div class="grid grid-cols-3 gap-2">
+                <button id="btn-wf-pause" disabled class="py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 text-xs font-semibold flex items-center justify-center gap-1 transition disabled:opacity-40">
+                  <i class="ph-bold ph-pause text-sm"></i> Pause
+                </button>
+                <button id="btn-wf-resume" disabled class="py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 text-xs font-semibold flex items-center justify-center gap-1 transition disabled:opacity-40">
+                  <i class="ph-bold ph-play text-sm"></i> Resume
+                </button>
+                <button id="btn-wf-cancel" disabled class="py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 text-xs font-semibold flex items-center justify-center gap-1 transition disabled:opacity-40">
+                  <i class="ph-bold ph-x text-sm"></i> Cancel
+                </button>
+              </div>
+              <button id="btn-wf-clear" class="w-full py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition">
+                <i class="ph-bold ph-trash text-sm"></i> Xóa Lịch Sử
+              </button>
+            </div>
+          </div>
+
+          <!-- Right: Profile Selection with Checkbox or Textarea Modes -->
+          <div class="lg:col-span-2 rounded-2xl bg-surface-900/80 border border-slate-800/90 shadow-xl overflow-hidden flex flex-col">
+            <!-- Header & Mode Switcher -->
+            <div class="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2.5 bg-surface-950/40">
+              <div class="flex items-center space-x-1.5 p-1 bg-surface-950 rounded-xl border border-slate-800">
+                <button type="button" id="btn-wf-mode-checkbox" class="wf-mode-btn active px-3 py-1 rounded-lg text-xs font-bold transition flex items-center gap-1.5 bg-brand-600 text-white shadow-sm">
+                  <i class="ph-bold ph-check-square"></i> Tích Chọn Danh Sách
+                </button>
+                <button type="button" id="btn-wf-mode-text" class="wf-mode-btn px-3 py-1 rounded-lg text-xs font-semibold text-slate-400 hover:text-slate-200 transition flex items-center gap-1.5">
+                  <i class="ph-bold ph-text-align-left"></i> Dán Danh Sách Tên (Mỗi dòng 1 tên)
+                </button>
+              </div>
+              <div class="flex items-center gap-2">
+                <span id="wf-selected-count" class="text-xs px-2.5 py-1 rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20 font-mono font-bold">0 đã chọn</span>
+              </div>
+            </div>
+
+            <!-- Mode 1: Checkbox Selection Container -->
+            <div id="wf-mode-checkbox-container" class="flex-1 flex flex-col">
+              <div class="px-3 py-2 border-b border-slate-800/60 bg-surface-950/20 flex items-center justify-between gap-2">
+                <div class="relative flex-1">
+                  <i class="ph-bold ph-magnifying-glass absolute left-2.5 top-2 text-slate-500 text-xs"></i>
+                  <input type="text" id="wf-profile-search" placeholder="Tìm nhanh theo tên, ID, serial..." class="w-full pl-7 pr-3 py-1.5 bg-surface-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                </div>
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <button id="btn-wf-select-all" class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition font-semibold">Chọn Tất Cả</button>
+                  <button id="btn-wf-deselect-all" class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition font-semibold">Bỏ Chọn</button>
+                </div>
+              </div>
+              <div id="wf-profile-list" class="flex-1 overflow-y-auto p-3 space-y-1.5 max-h-72">
+                <div class="text-xs text-slate-500 text-center py-6">
+                  <i class="ph-bold ph-spinner-gap animate-spin block text-2xl mx-auto mb-2"></i>
+                  Đang tải danh sách profiles...
+                </div>
+              </div>
+            </div>
+
+            <!-- Mode 2: Textarea / Raw Name Paste Container -->
+            <div id="wf-mode-text-container" class="hidden flex-1 flex flex-col p-3 space-y-3">
+              <div class="flex items-center justify-between text-xs text-slate-400">
+                <span class="font-medium">Dán danh sách tên profile (mỗi profile một dòng):</span>
+                <button type="button" id="btn-wf-clear-text" class="text-[11px] text-slate-500 hover:text-rose-400 font-semibold transition">
+                  <i class="ph ph-trash"></i> Xóa text
+                </button>
+              </div>
+              <textarea id="wf-profile-text-input" rows="6" placeholder="Ví dụ:&#10;FB REUP Clone 04/08 4&#10;FB REUP Clone 04/08 6&#10;FB REUP Clone 04/08 7&#10;FB REUP Clone 04/08 8&#10;FB REUP Clone 04/08 9&#10;FB REUP Clone 04/08 10" class="w-full p-3 bg-surface-950 border border-slate-800 rounded-xl text-xs text-slate-100 font-mono focus:outline-none focus:border-brand-500 resize-y leading-relaxed"></textarea>
+
+              <!-- Live Validation / Matching Summary Banner -->
+              <div id="wf-text-preview-summary" class="hidden p-3 rounded-xl border space-y-2 text-xs">
+                <div class="flex items-center justify-between flex-wrap gap-2">
+                  <div class="flex items-center gap-2">
+                    <span id="wf-text-matched-badge" class="px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold font-mono">0 hợp lệ</span>
+                    <span id="wf-text-notfound-badge" class="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-bold font-mono">0 không tìm thấy</span>
+                  </div>
+                  <span class="text-[11px] text-slate-500">Tự động so khớp theo tên / Serial / ID</span>
+                </div>
+                <!-- Not Found Profile Pills List -->
+                <div id="wf-text-notfound-list" class="hidden pt-1 border-t border-slate-800/80 space-y-1">
+                  <div class="text-[11px] text-rose-400 font-semibold">⚠️ Các profile KHÔNG TỒN TẠI trong AdsPower (sẽ báo lỗi và tổng hợp khi chạy):</div>
+                  <div id="wf-text-notfound-pills" class="flex flex-wrap gap-1"></div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+
+        <!-- Task Progress Table -->
+        <div class="rounded-2xl bg-surface-900/80 border border-slate-800/90 shadow-xl overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-800 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <i class="ph-bold ph-rows text-violet-400"></i>
+              <span class="text-sm font-bold text-white">Tiến Độ Thực Thi</span>
+            </div>
+            <span class="text-xs text-slate-500">Cập nhật real-time qua SSE</span>
+          </div>
+          <div id="wf-tasks-container" class="divide-y divide-slate-800/50">
+            <div class="px-4 py-10 text-center text-slate-500 text-xs">
+              <i class="ph-bold ph-flow-arrow text-3xl block mx-auto mb-2 text-slate-700"></i>
+              Chưa có task nào. Chọn profiles và bấm "Run Batch Workflow" để bắt đầu.
+            </div>
+          </div>
+        </div>
+
+      </section>
+
+      <section id="tab-logs" class="tab-pane hidden space-y-4">
+
+        <div class="rounded-2xl border border-slate-800 bg-surface-950 overflow-hidden shadow-2xl flex flex-col h-[580px]">
+          <!-- Log Toolbar -->
+          <div class="px-4 py-3 bg-surface-900/90 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center space-x-2">
+              <span class="w-3 h-3 rounded-full bg-rose-500 inline-block"></span>
+              <span class="w-3 h-3 rounded-full bg-amber-500 inline-block"></span>
+              <span class="w-3 h-3 rounded-full bg-emerald-500 inline-block"></span>
+              <span class="text-xs font-mono text-slate-400 ml-2">Console Output & SSE Stream</span>
+            </div>
+
+            <div class="flex items-center space-x-2">
+              <!-- Filter by Level -->
+              <select id="select-log-level" class="px-2.5 py-1 bg-surface-950 border border-slate-800 rounded-lg text-xs text-slate-300 focus:outline-none">
+                <option value="all">Tất cả mức độ</option>
+                <option value="info">Info</option>
+                <option value="warn">Warn</option>
+                <option value="error">Error</option>
+              </select>
+
+              <button id="btn-copy-logs" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1">
+                <i class="ph ph-copy"></i> Copy
+              </button>
+              <button id="btn-clear-logs" class="text-xs px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition flex items-center gap-1">
+                <i class="ph ph-trash"></i> Xóa
+              </button>
+              <label class="flex items-center space-x-1.5 text-xs text-slate-400 cursor-pointer ml-1">
+                <input type="checkbox" id="chk-autoscroll" checked class="rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-0">
+                <span>Auto-scroll</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Log Content -->
+          <div id="log-terminal" class="flex-1 p-4 font-mono text-xs overflow-y-auto space-y-1 text-slate-300">
+            <div class="text-slate-500">[System] Đang kết nối Server-Sent Events stream...</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- TAB: SETTINGS & SYSTEM CONFIG              -->
+      <!-- ========================================== -->
+      <section id="tab-settings" class="tab-pane hidden space-y-5">
+        <div class="p-6 rounded-2xl bg-surface-900/80 border border-slate-800/90 shadow-xl space-y-6">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div>
+              <h3 class="text-base font-bold text-white flex items-center gap-2">
+                <i class="ph-bold ph-gear text-brand-400"></i>
+                Cấu Hình Hệ Thống & AI Agent
+              </h3>
+              <p class="text-xs text-slate-400 mt-1">Tùy chỉnh AdsPower API, giới hạn luồng tự động hóa và kết nối 9router / Gemini AI</p>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Card 1: AdsPower Local API -->
+            <div class="p-5 rounded-xl bg-surface-950/80 border border-slate-800/80 space-y-4">
+              <h4 class="text-xs font-bold text-brand-400 uppercase tracking-wider flex items-center gap-2 border-b border-slate-800 pb-2">
+                <i class="ph-bold ph-plug text-sm"></i> AdsPower Local API Configuration
+              </h4>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">AdsPower Local API Base URL</label>
+                <input type="text" id="setting-adspower-url" value="http://127.0.0.1:50325" placeholder="http://127.0.0.1:50325" class="w-full px-3 py-2 bg-surface-900 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">Trạng thái kết nối API</label>
+                <div class="flex items-center justify-between px-3 py-2.5 rounded-xl bg-surface-900 border border-slate-800 text-xs">
+                  <span class="text-slate-400">Local Port 50325:</span>
+                  <div class="flex items-center space-x-2">
+                    <span id="settings-api-dot" class="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+                    <span id="settings-api-status" class="font-semibold text-slate-300">Đang kiểm tra...</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Card 2: Concurrency & Threads -->
+            <div class="p-5 rounded-xl bg-surface-950/80 border border-slate-800/80 space-y-4">
+              <h4 class="text-xs font-bold text-brand-400 uppercase tracking-wider flex items-center gap-2 border-b border-slate-800 pb-2">
+                <i class="ph-bold ph-cpu text-sm"></i> Tự Động Hóa & Luồng Song Song (Concurrency)
+              </h4>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">Số luồng song song tối đa (Max Concurrent Profiles)</label>
+                <input type="number" id="setting-concurrency" min="1" max="50" value="5" class="w-full px-3 py-2 bg-surface-900 border border-slate-800 rounded-xl font-mono font-bold text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                <p class="text-[11px] text-slate-500 mt-2">Giới hạn số profile AdsPower khởi chạy đồng thời trong quá trình chạy kịch bản Auto-Login và batch automation.</p>
+              </div>
+
+              <div class="pt-3 border-t border-slate-800/80">
+                <label class="flex items-center space-x-2 cursor-pointer">
+                  <input type="checkbox" id="setting-autoclose-success" checked class="rounded bg-surface-900 border-slate-700 text-brand-500 focus:ring-0">
+                  <span class="text-xs font-semibold text-slate-300">Tự động đóng cửa sổ AdsPower khi đăng nhập thành công</span>
+                </label>
+                <p class="text-[11px] text-slate-500 mt-1">Chỉ giữ lại các cửa sổ profile bị Checkpoint, ReCaptcha hoặc lỗi chưa đăng nhập được để bạn quan sát và xử lý thủ công.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 3: AI Provider & 9router -->
+          <div class="p-5 rounded-xl bg-surface-950/80 border border-slate-800/80 space-y-4">
+            <h4 class="text-xs font-bold text-brand-400 uppercase tracking-wider flex items-center gap-2 border-b border-slate-800 pb-2">
+              <i class="ph-bold ph-sparkle text-sm"></i> Cấu Hình AI Provider (9router Proxy / Gemini)
+            </h4>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">AI Provider</label>
+                <select id="setting-ai-provider" class="w-full px-3 py-2 bg-surface-900 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                  <option value="9router">9router Proxy</option>
+                  <option value="gemini">Gemini Direct</option>
+                  <option value="custom">Custom OpenAI-compatible API</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">Tên Model AI / Group ID</label>
+                <input type="text" id="setting-ai-model" value="gemini-2.5-flash" placeholder="gemini-2.5-flash hoặc Group ID" class="w-full px-3 py-2 bg-surface-900 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">9router Base URL</label>
+              <input type="text" id="setting-ai-baseurl" value="http://localhost:2080/v1" placeholder="http://localhost:2080/v1" class="w-full px-3 py-2 bg-surface-900 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+              <p class="text-[11px] text-slate-500 mt-1">Đường dẫn 9router proxy server (mặc định: http://localhost:2080/v1)</p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">9router API Key (nếu có)</label>
+                <input type="password" id="setting-ai-key" placeholder="Nhập API Key 9router..." class="w-full px-3 py-2 bg-surface-900 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+              </div>
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">Tên Group 9router (Group Name)</label>
+                <input type="text" id="setting-ai-group" value="default" placeholder="Ví dụ: my-group-1" class="w-full px-3 py-2 bg-surface-900 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+              </div>
+            </div>
+          </div>
+
+          <!-- Card 4: Telegram Bot Notification & AI Summarizer -->
+          <div class="p-5 rounded-xl bg-surface-950/80 border border-slate-800/80 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+              <h4 class="text-xs font-bold text-brand-400 uppercase tracking-wider flex items-center gap-2">
+                <i class="ph-bold ph-paper-plane-tilt text-sm"></i> Cấu Hình Bot Telegram Notification & AI Báo Cáo
+              </h4>
+              <label class="flex items-center space-x-2 cursor-pointer">
+                <input type="checkbox" id="setting-telegram-enabled" class="rounded bg-surface-900 border-slate-700 text-brand-500 focus:ring-0">
+                <span class="text-xs font-semibold text-slate-300">Kích hoạt gửi Telegram</span>
+              </label>
+            </div>
+
+            <p class="text-[11px] text-slate-400">
+              Sau khi chạy xong lượt tự động hóa hàng loạt, AI sẽ tự tổng hợp chi tiết các loại lỗi (sai mật khẩu, bị checkpoint, recaptcha...) thành 1 bản báo cáo duy nhất gửi về Telegram để tránh làm phiền/spam.
+            </p>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">Telegram Bot Token</label>
+                <input type="password" id="setting-telegram-token" placeholder="Ví dụ: 123456789:ABCdefGHIjklMNOpqrSTUvwxYZ" class="w-full px-3 py-2 bg-surface-900 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                <p class="text-[10px] text-slate-500 mt-1">Lấy token từ @BotFather trên Telegram</p>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-400 mb-1.5">Telegram Chat ID / Channel ID</label>
+                <input type="text" id="setting-telegram-chatid" placeholder="Ví dụ: 987654321 hoặc -100xxx" class="w-full px-3 py-2 bg-surface-900 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                <p class="text-[10px] text-slate-500 mt-1">Lấy Chat ID cá nhân từ @userinfobot hoặc nhóm</p>
+              </div>
+            </div>
+
+            <div class="flex justify-end pt-1">
+              <button id="btn-test-telegram" type="button" class="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition border border-slate-700 flex items-center gap-1.5">
+                <i class="ph-bold ph-paper-plane-right text-brand-400"></i> Test Gửi Telegram
+              </button>
+            </div>
+          </div>
+
+          <!-- Action Bar -->
+          <div class="flex items-center justify-end pt-2">
+            <button id="btn-save-settings" class="px-6 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-brand-500/25 active:scale-95">
+              <i class="ph-bold ph-floppy-disk text-base"></i> Lưu Cấu Hình Hệ Thống
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Profile Detail Slide-Over Drawer -->
+  <div id="profile-drawer" class="fixed inset-y-0 right-0 z-50 w-full sm:w-96 bg-surface-900 border-l border-slate-800 shadow-2xl transform translate-x-full transition-transform duration-300 flex flex-col">
+    <div class="p-5 border-b border-slate-800 flex items-center justify-between">
+      <h3 class="text-sm font-bold text-white flex items-center gap-2">
+        <i class="ph-bold ph-identification-card text-brand-400"></i>
+        Chi Tiết Profile AdsPower
+      </h3>
+      <button id="btn-close-drawer" class="text-slate-400 hover:text-white p-1 rounded-lg">
+        <i class="ph-bold ph-x text-lg"></i>
+      </button>
+    </div>
+    <div id="drawer-content" class="flex-1 p-5 overflow-y-auto space-y-4 font-sans text-xs">
+      <!-- Injected via JS -->
+    </div>
+  </div>
+
+  <!-- Modal Thêm Skill Mới -->
+  <div id="modal-add-skill" class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm hidden">
+    <div class="bg-surface-900 border border-slate-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4 m-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="text-sm font-bold text-white flex items-center gap-2">
+          <i class="ph-bold ph-brain text-amber-400"></i> Thêm Skill Tự Sửa Lỗi Mới
+        </h3>
+        <button id="btn-close-skill-modal" class="text-slate-400 hover:text-white p-1">
+          <i class="ph-bold ph-x text-lg"></i>
+        </button>
+      </div>
+
+      <form id="form-add-skill" class="space-y-4">
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1">Mã Skill ID (Duy nhất)</label>
+          <input type="text" id="skill-input-id" required placeholder="Ví dụ: fb_login_button" class="w-full px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-brand-500">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1">Domain / Website</label>
+            <input type="text" id="skill-input-site" required placeholder="facebook.com" class="w-full px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-brand-500">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-400 mb-1">Loại Hành Động (Action Type)</label>
+            <input type="text" id="skill-input-action" required placeholder="click_login_button" class="w-full px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-brand-500">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-semibold text-slate-400 mb-1">Ghi chú (Notes)</label>
+          <input type="text" id="skill-input-notes" placeholder="Mô tả công dụng của skill..." class="w-full px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-brand-500">
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs font-semibold text-slate-400">Chuỗi Selector Ưu Tiên (Selector Chain)</label>
+            <button type="button" id="btn-add-selector-row" class="text-[11px] font-bold text-brand-400 hover:text-brand-300 flex items-center gap-1">
+              <i class="ph-bold ph-plus"></i> Thêm Selector
+            </button>
+          </div>
+          <div id="selector-chain-container" class="space-y-2 max-h-40 overflow-y-auto pr-1">
+            <!-- Default Row 1 -->
+            <div class="flex items-center space-x-2 selector-row">
+              <select class="sel-type px-2 py-1.5 bg-surface-950 border border-slate-800 rounded-lg text-xs text-slate-300">
+                <option value="css">CSS</option>
+                <option value="xpath">XPath</option>
+                <option value="text">Text</option>
+                <option value="aria-label">ARIA</option>
+              </select>
+              <input type="text" required placeholder="Gía trị selector (e.g. button[name='login'])" class="sel-value flex-1 px-2.5 py-1.5 bg-surface-950 border border-slate-800 rounded-lg text-xs text-white font-mono focus:outline-none focus:border-brand-500">
+              <button type="button" onclick="this.parentElement.remove()" class="p-1 text-slate-500 hover:text-rose-400">
+                <i class="ph-bold ph-trash"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex justify-end space-x-2 pt-2 border-t border-slate-800">
+          <button type="button" id="btn-cancel-add-skill" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">Hủy</button>
+          <button type="submit" class="px-4 py-2 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold shadow-md shadow-brand-500/25">Lưu Skill</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
+
+  <!-- JavaScript -->
+  <script src="app.js"></script>
+</body>
+</html>

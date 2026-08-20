@@ -1,0 +1,102 @@
+[
+  {
+    "skillId": "facebook_login_button",
+    "site": "facebook.com",
+    "actionType": "click_login_button",
+    "status": "verified",
+    "selectorChain": [
+      {
+        "type": "css",
+        "value": "button[name=\"login\"]",
+        "priority": 1
+      },
+      {
+        "type": "css",
+        "value": "button[type=\"submit\"]",
+        "priority": 2
+      },
+      {
+        "type": "text",
+        "value": "Đăng nhập",
+        "priority": 3
+      },
+      {
+        "type": "text",
+        "value": "Log In",
+        "priority": 4
+      },
+      {
+        "type": "aria-label",
+        "value": "Accessible login button",
+        "priority": 5
+      }
+    ],
+    "createdBy": "seed",
+    "createdAt": "2026-08-19T07:41:49.762Z",
+    "lastVerifiedAt": "2026-08-19T07:41:49.763Z",
+    "successCount": 42,
+    "failCount": 0,
+    "version": 1,
+    "notes": "Selector đăng nhập chuẩn cho Facebook Web"
+  },
+  {
+    "skillId": "google_search_input",
+    "site": "google.com",
+    "actionType": "fill_search_box",
+    "status": "verified",
+    "selectorChain": [
+      {
+        "type": "css",
+        "value": "textarea[name=\"q\"]",
+        "priority": 1
+      },
+      {
+        "type": "css",
+        "value": "input[name=\"q\"]",
+        "priority": 2
+      },
+      {
+        "type": "aria-label",
+        "value": "Tìm kiếm",
+        "priority": 3
+      }
+    ],
+    "createdBy": "seed",
+    "createdAt": "2026-08-19T07:41:49.763Z",
+    "lastVerifiedAt": "2026-08-19T07:41:49.763Z",
+    "successCount": 128,
+    "failCount": 0,
+    "version": 1,
+    "notes": "Ô tìm kiếm Google Search"
+  },
+  {
+    "skillId": "twitter_post_tweet_button",
+    "site": "x.com",
+    "actionType": "click_tweet_button",
+    "status": "testing",
+    "selectorChain": [
+      {
+        "type": "css",
+        "value": "[data-testid=\"tweetButtonInline\"]",
+        "priority": 1
+      },
+      {
+        "type": "css",
+        "value": "[data-testid=\"tweetButton\"]",
+        "priority": 2
+      },
+      {
+        "type": "text",
+        "value": "Post",
+        "priority": 3
+      }
+    ],
+    "createdBy": "agent",
+    "createdAt": "2026-08-19T07:41:49.763Z",
+    "lastVerifiedAt": "2026-08-19T07:41:49.763Z",
+    "successCount": 4,
+    "failCount": 0,
+    "version": 2,
+    "notes": "Nút đăng bài Twitter / X"
+  }
+]
