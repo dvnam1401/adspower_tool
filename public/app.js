@@ -1501,6 +1501,8 @@ function initSSE() {
       showToast('✅ Batch workflow hoàn thành!', 'success');
       updateWorkflowEngineBadge('idle');
       setWorkflowControlState('idle');
+      fetchWorkflowStatus();
+      stopWorkflowPolling();
     } catch {}
   });
 
@@ -1960,6 +1962,7 @@ function initWorkflowRunner() {
       if (data.success) {
         setWorkflowControlState('running');
         renderWorkflowTasks(data.tasks || []);
+        startWorkflowPolling();
 
         if (data.notFoundCount > 0) {
           showToast(`⚠️ Đã chạy ${data.resolvedCount} profile hợp lệ. Lưu ý có ${data.notFoundCount} profile không tìm thấy trên AdsPower!`, 'warn');
@@ -2104,10 +2107,30 @@ function parseAndValidateTextInput() {
   }
 }
 
+let wfPollInterval = null;
+
+function startWorkflowPolling() {
+  stopWorkflowPolling();
+  fetchWorkflowStatus();
+  wfPollInterval = setInterval(async () => {
+    const isRunning = await fetchWorkflowStatus();
+    if (!isRunning) {
+      stopWorkflowPolling();
+    }
+  }, 1000);
+}
+
+function stopWorkflowPolling() {
+  if (wfPollInterval) {
+    clearInterval(wfPollInterval);
+    wfPollInterval = null;
+  }
+}
+
 async function fetchWorkflowStatus() {
   try {
     const res = await fetch('/api/workflow/status');
-    if (!res.ok) return;
+    if (!res.ok) return false;
     const data = await res.json();
     updateWorkflowEngineBadge(data.engineState);
     renderWorkflowTasks(data.tasks || []);
@@ -2115,7 +2138,11 @@ async function fetchWorkflowStatus() {
 
     const badge = document.getElementById('badge-nav-workflow');
     if (badge) badge.textContent = data.engineState || 'idle';
-  } catch {}
+
+    return data.engineState === 'running';
+  } catch {
+    return false;
+  }
 }
 
 function renderWorkflowProfileList(filterQuery = '') {

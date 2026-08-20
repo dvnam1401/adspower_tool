@@ -84,6 +84,7 @@ export interface AccountPublic
 export interface CreateAccountDto {
   profileName: string;
   adspowerUserId?: string;
+  adspowerSerialNumber?: string;
   adspowerGroupId?: string;
   linkedContent?: string;
   loginId?: string;

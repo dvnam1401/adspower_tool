@@ -231,9 +231,10 @@ export class AccountRepository {
     };
 
     const fieldMap: Record<string, string> = {
-      profileName:       'profile_name',
-      adspowerUserId:    'adspower_user_id',
-      adspowerGroupId:   'adspower_group_id',
+      profileName:          'profile_name',
+      adspowerUserId:       'adspower_user_id',
+      adspowerSerialNumber: 'adspower_serial_number',
+      adspowerGroupId:      'adspower_group_id',
       linkedContent:     'linked_content',
       loginId:           'login_id',
       password:          'password_enc',
