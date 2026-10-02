@@ -2430,6 +2430,8 @@ function initYoutubeChecker() {
       }
 
       const apiKey = apiKeyInput?.value?.trim() || '';
+      const maxVideosEl = document.getElementById('yt-max-videos');
+      const maxVideos = parseInt(maxVideosEl?.value || '10', 10) || 0;
 
       document.getElementById('yt-progress')?.classList.remove('hidden');
       document.getElementById('yt-results-section')?.classList.add('hidden');
@@ -2444,7 +2446,7 @@ function initYoutubeChecker() {
         const res = await fetch('/api/youtube/check-channels', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ channels, youtubeApiKey: apiKey }),
+          body: JSON.stringify({ channels, youtubeApiKey: apiKey, maxVideos }),
         });
         const data = await res.json();
 
@@ -2576,7 +2578,54 @@ function renderYoutubeResults(results, errors) {
         ? new Date(r.publishedAt).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
         : '—';
 
-      return `<tr class="hover:bg-surface-900/50 transition-colors">
+      const hasVideos = r.videos && r.videos.length > 0;
+      const videosBtnHtml = hasVideos
+        ? `<button onclick="ytToggleVideos(${i},this)" class="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 hover:text-red-300 transition">
+            <i class="ph-bold ph-caret-down text-xs"></i> ${r.videos.length}
+          </button>`
+        : `<span class="text-slate-600 text-xs">—</span>`;
+
+      const videoRowsHtml = hasVideos
+        ? r.videos.map((v, vi) => {
+            const vDate = v.publishedAt ? new Date(v.publishedAt).toLocaleDateString('vi-VN') : '—';
+            return `<tr class="bg-slate-900/50 hover:bg-slate-900/80 transition-colors">
+              <td class="pl-10 pr-3 py-2 text-xs text-slate-600 font-mono">${vi + 1}</td>
+              <td class="px-3 py-2 max-w-xs">
+                <a href="${v.url}" target="_blank" rel="noopener noreferrer" class="text-xs text-brand-400 hover:text-brand-300 hover:underline line-clamp-1" title="${v.title.replace(/"/g, '&quot;')}">${v.title || 'N/A'}</a>
+              </td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-violet-400">${ytFormatNumber(v.viewCount)}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-emerald-400">${ytFormatNumber(v.likeCount)}</td>
+              <td class="px-3 py-2 text-right font-mono text-xs text-slate-400">${ytFormatNumber(v.commentCount)}</td>
+              <td class="px-3 py-2 text-xs text-slate-500">${vDate}</td>
+            </tr>`;
+          }).join('')
+        : '';
+
+      const subTableHtml = hasVideos
+        ? `<tr id="yt-sub-${i}" class="hidden">
+            <td colspan="9" class="p-0 bg-slate-950/60 border-b border-slate-800">
+              <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead class="bg-slate-900/80 text-slate-500 uppercase tracking-wider">
+                    <tr>
+                      <th class="pl-10 pr-3 py-2 w-10">#</th>
+                      <th class="px-3 py-2">Tiêu Đề Video</th>
+                      <th class="px-3 py-2 text-right">Views</th>
+                      <th class="px-3 py-2 text-right">Likes</th>
+                      <th class="px-3 py-2 text-right">Comments</th>
+                      <th class="px-3 py-2">Ngày Đăng</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-slate-800/40">
+                    ${videoRowsHtml}
+                  </tbody>
+                </table>
+              </div>
+            </td>
+          </tr>`
+        : '';
+
+      return `<tr class="hover:bg-surface-900/50 transition-colors" id="yt-row-${i}">
         <td class="px-3 py-3 text-center text-xs text-slate-500 font-mono">${i + 1}</td>
         <td class="px-4 py-3">
           <div class="flex items-center gap-3">
@@ -2597,12 +2646,25 @@ function renderYoutubeResults(results, errors) {
             <i class="ph-bold ph-arrow-square-out"></i> Mở
           </a>
         </td>
-      </tr>`;
+        <td class="px-3 py-3 text-center">${videosBtnHtml}</td>
+      </tr>${subTableHtml}`;
     }).join('');
   }
 
   document.getElementById('yt-results-section')?.classList.remove('hidden');
   showToast(`Đã kiểm tra xong ${results.length} kênh!`, 'success');
+}
+
+function ytToggleVideos(idx, btn) {
+  const sub = document.getElementById(`yt-sub-${idx}`);
+  if (!sub) return;
+  const isOpen = !sub.classList.contains('hidden');
+  sub.classList.toggle('hidden', isOpen);
+  const icon = btn?.querySelector('i');
+  if (icon) {
+    icon.classList.toggle('ph-caret-down', isOpen);
+    icon.classList.toggle('ph-caret-up', !isOpen);
+  }
 }
 
 function exportYoutubeExcel(results) {
@@ -2639,8 +2701,38 @@ function exportYoutubeExcel(results) {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'YouTube Channels');
 
+  // Sheet 2: all videos
+  const videoRows = [];
+  results.forEach(r => {
+    const channelName = r.title || '';
+    const channelUrl = r.url || '';
+    (r.videos || []).forEach((v, vi) => {
+      videoRows.push({
+        'Kênh': channelName,
+        'Link Kênh': channelUrl,
+        '#': vi + 1,
+        'Tiêu Đề Video': v.title || '',
+        'Link Video': v.url || '',
+        'Views': v.viewCount || 0,
+        'Likes': v.likeCount || 0,
+        'Comments': v.commentCount || 0,
+        'Ngày Đăng': v.publishedAt ? new Date(v.publishedAt).toLocaleDateString('vi-VN') : '',
+      });
+    });
+  });
+
+  if (videoRows.length > 0) {
+    const ws2 = XLSX.utils.json_to_sheet(videoRows);
+    ws2['!cols'] = [
+      { wch: 35 }, { wch: 45 }, { wch: 5 }, { wch: 80 }, { wch: 45 },
+      { wch: 15 }, { wch: 12 }, { wch: 12 }, { wch: 14 },
+    ];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Videos');
+  }
+
   const today = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `youtube_channels_${today}.xlsx`);
-  showToast(`Đã export ${results.length} kênh ra Excel thành công!`, 'success');
+  const videoCount = videoRows.length;
+  showToast(`Đã export ${results.length} kênh${videoCount > 0 ? ` & ${videoCount} video` : ''} ra Excel!`, 'success');
 }
 

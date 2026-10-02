@@ -1017,6 +1017,61 @@ async function fetchYouTubeChannel(
   }
 }
 
+async function fetchChannelVideos(
+  channelId: string,
+  apiKey: string,
+  maxResults: number
+): Promise<any[]> {
+  const playlistId = 'UU' + channelId.slice(2);
+  const videoIds: string[] = [];
+  let pageToken: string | undefined;
+
+  while (videoIds.length < maxResults) {
+    const batchSize = Math.min(50, maxResults - videoIds.length);
+    let piUrl = `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${encodeURIComponent(playlistId)}&maxResults=${batchSize}&key=${encodeURIComponent(apiKey)}`;
+    if (pageToken) piUrl += `&pageToken=${encodeURIComponent(pageToken)}`;
+    try {
+      const piRes = await fetch(piUrl);
+      const piData: any = await piRes.json();
+      if (piData.error || !piData.items) break;
+      for (const item of piData.items) {
+        const vid = item.contentDetails?.videoId;
+        if (vid) videoIds.push(vid);
+      }
+      if (!piData.nextPageToken) break;
+      pageToken = piData.nextPageToken;
+    } catch { break; }
+  }
+
+  if (videoIds.length === 0) return [];
+
+  const videos: any[] = [];
+  for (let i = 0; i < videoIds.length; i += 50) {
+    const batch = videoIds.slice(i, i + 50);
+    const vUrl = `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics&id=${encodeURIComponent(batch.join(','))}&key=${encodeURIComponent(apiKey)}`;
+    try {
+      const vRes = await fetch(vUrl);
+      const vData: any = await vRes.json();
+      if (vData.error || !vData.items) break;
+      for (const item of vData.items) {
+        const s = item.snippet || {};
+        const stats = item.statistics || {};
+        videos.push({
+          id: item.id,
+          title: s.title || '',
+          url: `https://www.youtube.com/watch?v=${item.id}`,
+          thumbnail: s.thumbnails?.medium?.url || s.thumbnails?.default?.url || '',
+          publishedAt: s.publishedAt || '',
+          viewCount: parseInt(stats.viewCount || '0', 10),
+          likeCount: parseInt(stats.likeCount || '0', 10),
+          commentCount: parseInt(stats.commentCount || '0', 10),
+        });
+      }
+    } catch { break; }
+  }
+  return videos;
+}
+
 app.get('/api/youtube/config', (req: Request, res: Response) => {
   res.json({ success: true, hasKey: Boolean(config.youtube?.apiKey) });
 });
@@ -1031,8 +1086,9 @@ app.post('/api/youtube/save-key', (req: Request, res: Response) => {
 });
 
 app.post('/api/youtube/check-channels', async (req: Request, res: Response) => {
-  const { channels, youtubeApiKey } = req.body;
+  const { channels, youtubeApiKey, maxVideos } = req.body;
   const apiKey = (youtubeApiKey || '').trim() || (config.youtube?.apiKey || '');
+  const videosPerChannel = Math.min(50, Math.max(0, parseInt(String(maxVideos ?? '10'), 10)));
 
   if (!apiKey) {
     return res.status(400).json({
@@ -1066,6 +1122,11 @@ app.post('/api/youtube/check-channels', async (req: Request, res: Response) => {
     if (error) {
       errors.push({ input, error });
     } else if (result) {
+      if (videosPerChannel > 0) {
+        result.videos = await fetchChannelVideos(result.id, apiKey, videosPerChannel);
+      } else {
+        result.videos = [];
+      }
       results.push(result);
     }
   }
