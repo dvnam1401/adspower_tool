@@ -68,3 +68,18 @@ export function redactSensitive(obj: Record<string, unknown>): Record<string, un
 export function generateId(): string {
   return crypto.randomUUID();
 }
+
+/**
+ * Build a stable idempotency key for one sync-job unit of work (spec §6.2).
+ * Composite of job + target profile + field so re-running a job never
+ * produces duplicate writes. `|` in inputs is escaped to keep the key unambiguous.
+ */
+export function buildIdempotencyKey(parts: {
+  jobId: string;
+  profileId: string;
+  field: string;
+}): string {
+  return [parts.jobId, parts.profileId, parts.field]
+    .map((p) => String(p).replace(/\|/g, '_'))
+    .join('|');
+}

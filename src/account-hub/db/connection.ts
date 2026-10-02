@@ -10,6 +10,7 @@ import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
 import { accountHubConfig } from '../config.js';
+import { assertEncryptionKey } from '../crypto.js';
 import { logger } from '../../utils/logger.js';
 
 let _db: Database.Database | null = null;
@@ -39,6 +40,9 @@ export function initDb(): Database.Database {
   db.pragma('foreign_keys = ON');
   // Reasonable busy timeout (5 s) to handle write contention
   db.pragma('busy_timeout = 5000');
+
+  // Encryption is mandatory when the subsystem runs — fail fast on a bad/missing key.
+  assertEncryptionKey();
 
   _db = db;
   return db;

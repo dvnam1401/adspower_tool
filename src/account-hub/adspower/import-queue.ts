@@ -7,22 +7,34 @@
  * 3. Login queue (runs auto login, marks NEEDS_ATTENTION on verification requirement)
  * 4. Pause / resume / cancel / retry operations
  * 5. Respects dry-run flag (`ACCOUNT_HUB_DRY_RUN`)
+ * 6. Proxy hard block (Data Warehouse spec §5): an item whose proxy is missing,
+ *    invalid or unreachable is refused — it never reaches profile creation nor
+ *    the login step. A bound account's proxy is read from AdsPower; an account
+ *    that is not on AdsPower yet must be queued together with the proxy its
+ *    profile will be created with.
  */
 
 import { accountHubConfig } from '../config.js';
 import type { AccountRepository } from '../db/repositories/account-repository.js';
 import type { SyncJobRepository } from '../db/repositories/sync-job-repository.js';
 import type { AuditLogRepository } from '../db/repositories/audit-log-repository.js';
+import type { ProxyCheckService } from '../services/proxy-check-service.js';
+import type { AdsPowerProxyConfig } from '../../types/index.js';
 import { logger } from '../../utils/logger.js';
 
 export interface QueueItem {
   id:           string;
   accountId:    string;
   profileName:  string;
-  status:       'pending' | 'creating' | 'created' | 'login_running' | 'completed' | 'needs_attention' | 'failed';
+  status:       'pending' | 'creating' | 'created' | 'login_running' | 'completed' | 'needs_attention' | 'failed' | 'proxy_blocked';
   error?:       string;
   adspowerId?:  string;
+  /** Proxy the profile will be created with — required for unbound accounts. */
+  proxyConfig?: AdsPowerProxyConfig;
 }
+
+/** Proxy supplied per account when queueing accounts that are not on AdsPower yet. */
+export type QueuedProxyMap = Record<string, AdsPowerProxyConfig>;
 
 export class BulkCreateAndLoginQueue {
   private items: Map<string, QueueItem> = new Map();
@@ -33,10 +45,15 @@ export class BulkCreateAndLoginQueue {
     private accountRepo: AccountRepository,
     private syncJobRepo: SyncJobRepository,
     private auditRepo:   AuditLogRepository,
+    private proxyCheck?: ProxyCheckService,
   ) {}
 
-  /** Add items to queue */
-  addAccounts(accountIds: string[]): QueueItem[] {
+  /**
+   * Add items to queue. `proxies` carries the proxy each not-yet-created profile
+   * will be provisioned with; accounts already bound to AdsPower ignore it
+   * because their proxy is read back from AdsPower at gate time.
+   */
+  addAccounts(accountIds: string[], proxies: QueuedProxyMap = {}): QueueItem[] {
     const added: QueueItem[] = [];
     for (const id of accountIds) {
       const acc = this.accountRepo.findById(id);
@@ -48,12 +65,32 @@ export class BulkCreateAndLoginQueue {
         profileName: acc.profileName,
         status: 'pending',
         adspowerId: acc.adspowerUserId || undefined,
+        proxyConfig: proxies[id],
       };
 
       this.items.set(item.id, item);
       added.push(item);
     }
     return added;
+  }
+
+  /**
+   * Proxy hard block (spec §5). Returns a failure reason, or null when the item
+   * may proceed. Bound accounts are checked against AdsPower's live proxy
+   * config; unbound accounts are checked against the proxy queued with them.
+   */
+  private async proxyGate(item: QueueItem): Promise<string | null> {
+    if (!this.proxyCheck) return null;
+
+    if (item.adspowerId) {
+      const result = await this.proxyCheck.checkAccount(item.accountId, { notify: true });
+      return result.blocked ? `PROXY_BLOCKED [${result.state}] ${result.detail}` : null;
+    }
+
+    const classified = this.proxyCheck.classify(item.proxyConfig);
+    return classified.state === 'OK'
+      ? null
+      : `PROXY_BLOCKED [${classified.state}] ${classified.detail} — a profile cannot be created without a working proxy`;
   }
 
   /** Start processing queue items */
@@ -75,6 +112,23 @@ export class BulkCreateAndLoginQueue {
         break;
       }
       if (item.status === 'completed' || item.status === 'needs_attention') continue;
+
+      // Step 0: proxy is the only hard block — refuse before create AND login.
+      const blockedReason = await this.proxyGate(item);
+      if (blockedReason) {
+        item.status = 'proxy_blocked';
+        item.error = blockedReason;
+        logger.warn(`[AccountHub][Queue] ${item.profileName}: ${blockedReason}`);
+        this.auditRepo.append({
+          actor: opts.createdBy ?? null,
+          action: 'proxy_block',
+          entityType: 'account',
+          entityId: item.accountId,
+          afterJson: JSON.stringify({ reason: blockedReason }),
+          source: 'queue',
+        });
+        continue;
+      }
 
       try {
         // Step 1: Create profile if not yet created
@@ -131,9 +185,10 @@ export class BulkCreateAndLoginQueue {
     this.isPaused = true;
   }
 
-  resume(opts: { createdBy?: string } = {}) {
+  /** Returns the processing run so callers (and tests) can await completion. */
+  resume(opts: { createdBy?: string } = {}): Promise<void> {
     this.isPaused = false;
-    this.startProcessing(opts);
+    return this.startProcessing(opts);
   }
 
   cancel() {
@@ -146,14 +201,20 @@ export class BulkCreateAndLoginQueue {
     }
   }
 
-  retryFailed() {
+  /**
+   * Re-queue everything that did not get through, including proxy-blocked items
+   * (the operator fixes the proxy on AdsPower, then retries).
+   */
+  retryFailed(opts: { proxies?: QueuedProxyMap; createdBy?: string } = {}): Promise<void> {
     for (const item of this.items.values()) {
-      if (item.status === 'failed') {
+      if (item.status === 'failed' || item.status === 'proxy_blocked') {
         item.status = 'pending';
         item.error = undefined;
+        const replacement = opts.proxies?.[item.accountId];
+        if (replacement) item.proxyConfig = replacement;
       }
     }
-    this.startProcessing();
+    return this.startProcessing({ createdBy: opts.createdBy });
   }
 
   getStatusSummary() {
@@ -167,6 +228,7 @@ export class BulkCreateAndLoginQueue {
       completed:      list.filter(i => i.status === 'completed').length,
       needsAttention: list.filter(i => i.status === 'needs_attention').length,
       failed:         list.filter(i => i.status === 'failed').length,
+      proxyBlocked:   list.filter(i => i.status === 'proxy_blocked').length,
       isPaused:       this.isPaused,
       isRunning:      this.isRunning,
       items:          list,

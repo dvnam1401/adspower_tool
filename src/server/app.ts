@@ -1,6 +1,7 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
 import { adsPowerClient } from '../adspower/client.js';
@@ -8,9 +9,11 @@ import { skillRepository } from '../skills/repository.js';
 import { cdpManager } from '../dom/cdp.js';
 import { facebookLoginAutomation } from '../automation/facebook-login.js';
 import { batchFacebookLoginRunner } from '../automation/batch-runner.js';
+import { facebookPageInventoryService, validatePageInventoryScanInput } from '../automation/facebook-page-inventory.js';
 import { config, updateSystemConfig } from '../config/index.js';
 import { logger } from '../utils/logger.js';
 import { sendTelegramMessage } from '../utils/telegram.js';
+import { normalizeProxyHost, readProxyConfig } from '../utils/proxy.js';
 import { authRepository } from '../auth/repository.js';
 import { authMiddleware, AuthenticatedRequest } from '../auth/middleware.js';
 import { Skill, DOMAction } from '../types/index.js';
@@ -19,9 +22,19 @@ import { healingLog } from '../recovery/healing-log.js';
 import { errorClassifier } from '../recovery/classifier.js';
 import { llmAgentResolver } from '../agent/resolver.js';
 // Phase 7: Workflow Engine
-import { workflowEngine, WORKFLOW_PRESETS } from '../workflow/engine.js';
+import {
+  workflowEngine,
+  WORKFLOW_PRESETS,
+  isWorkflowValidationError,
+  isWorkflowConflictError,
+} from '../workflow/engine.js';
+import { listProviders, taothaoProvider } from '../providers/index.js';
+import { DEFAULT_BROWSER_PROVIDER, isBrowserProviderId } from '../providers/types.js';
+import { taothaoClient, TaothaoApiError } from '../taothao/client.js';
+import { youtubeRunStore } from '../youtube/report-store.js';
+import { youtubeChannelCache } from '../youtube/channel-cache.js';
 // Account Hub subsystem (feature-flagged — see ACCOUNT_HUB_ENABLED)
-import { createAccountHubRouter } from '../account-hub/index.js';
+import { createAccountHubRouter, createAccountHubWebhookRouter } from '../account-hub/index.js';
 
 
 
@@ -32,6 +45,13 @@ const publicDir = path.resolve(__dirname, '../../public');
 export const app = express();
 
 app.use(cors());
+
+// Account Hub Apps Script webhook (spec §7.1). Mounted before express.json() so
+// the HMAC can be computed over the exact request bytes, and before
+// authMiddleware because Apps Script carries no session token — the shared-secret
+// HMAC is its only credential. Answers 404 unless ACCOUNT_HUB_WEBHOOK_ENABLED=true.
+const accountHubWebhookRouter = createAccountHubWebhookRouter();
+if (accountHubWebhookRouter) app.use('/hooks/account-hub', accountHubWebhookRouter);
 app.use(express.json());
 app.use(express.static(publicDir));
 
@@ -123,8 +143,12 @@ export function broadcastEvent(event: string, data: any) {
   }
 }
 
-// Inject broadcast function into Workflow Engine (Phase 7)
-workflowEngine.setBroadcast(broadcastEvent);
+// Inject broadcast function into Workflow Engine (Phase 7).
+// Deferred to a microtask so it is robust to module-graph entry order: when the
+// engine module is imported first, this file evaluates mid-cycle (engine ->
+// healing-orchestrator -> app -> engine) while `workflowEngine` is still in TDZ.
+// The broadcast fn is only needed at request time, so a microtask is harmless.
+queueMicrotask(() => workflowEngine.setBroadcast(broadcastEvent));
 
 
 const originalInfo = logger.info.bind(logger);
@@ -185,13 +209,17 @@ app.get('/api/config', (req: Request, res: Response) => {
     llm: config.llm,
     telegram: config.telegram,
     automation: config.automation,
+    youtube: {
+      // CHỈ cho biết đã cấu hình hay chưa — KHÔNG bao giờ trả API Key ra UI/log/SSE.
+      apiKeyConfigured: Boolean(config.youtube.apiKey?.trim()),
+    },
     windowLayout: config.windowLayout,
   });
 });
 
 app.post('/api/config', (req: Request, res: Response) => {
   try {
-    const { maxProfiles, profileStartTimeoutMs, domActionTimeoutMs, adspowerUrl, llm, telegram, automation, windowLayout } = req.body;
+    const { maxProfiles, profileStartTimeoutMs, domActionTimeoutMs, adspowerUrl, llm, telegram, automation, windowLayout, youtube } = req.body;
     
     const partialToUpdate: any = {};
 
@@ -233,6 +261,10 @@ app.post('/api/config', (req: Request, res: Response) => {
       };
     }
 
+    if (youtube && typeof youtube === 'object' && youtube.apiKey !== undefined) {
+      partialToUpdate.youtube = { apiKey: String(youtube.apiKey).trim() };
+    }
+
     if (windowLayout && typeof windowLayout === 'object') {
       partialToUpdate.windowLayout = {
         enabled: Boolean(windowLayout.enabled),
@@ -250,15 +282,21 @@ app.post('/api/config', (req: Request, res: Response) => {
 
     logger.info(`[System Config Updated] Settings persisted. Concurrency: ${updated.concurrency.maxProfiles}, Telegram Enabled: ${updated.telegram.enabled}`);
 
+    // API Key YouTube KHÔNG được lọt ra SSE/response — SSE phát tới mọi client đang mở.
+    const safeConfig = {
+      ...updated,
+      youtube: { apiKeyConfigured: Boolean(updated.youtube.apiKey?.trim()) },
+    };
+
     broadcastEvent('config_updated', {
       concurrencyLimit: updated.concurrency.maxProfiles,
-      config: updated,
+      config: safeConfig,
     });
 
     res.json({
       success: true,
       message: 'Cập nhật cấu hình hệ thống thành công!',
-      config: updated,
+      config: safeConfig,
     });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
@@ -323,6 +361,94 @@ app.get('/api/profiles', async (req: Request, res: Response) => {
     res.json(data);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ==========================================
+// PROXY CHECKER — Kiểm tra proxy đã sử dụng
+// ==========================================
+
+// `normalizeProxyHost` + config reading now live in `src/utils/proxy.ts` so the
+// Account Hub proxy gate (spec §5) shares one implementation.
+
+/**
+ * POST /api/proxy/check
+ * Body: { proxies: string[], proxyFormat?: "host:port" | "host:port:user:pass" | "auto" }
+ * Response: { total, used[], unused[], totalProfilesScanned }
+ */
+app.post('/api/proxy/check', async (req: Request, res: Response) => {
+  try {
+    const { proxies } = req.body as { proxies: string[]; proxyFormat?: string };
+
+    if (!Array.isArray(proxies) || proxies.length === 0) {
+      return res.status(400).json({ success: false, error: 'Vui lòng cung cấp danh sách proxy (mảng strings).' });
+    }
+
+    logger.info(`[Proxy Checker] Bắt đầu kiểm tra ${proxies.length} proxies trong AdsPower...`);
+
+    // Fetch toàn bộ profiles từ AdsPower
+    const profilesResult = await adsPowerClient.listProfiles({ fetchAll: true });
+    const allProfiles = profilesResult.list || [];
+
+    logger.info(`[Proxy Checker] Đã fetch ${allProfiles.length} profiles từ AdsPower. Đang phân tích...`);
+
+    // Xây dựng bản đồ: normalizedHostPort → danh sách profile
+    const proxyMap = new Map<string, Array<{ user_id: string; name: string; serial_number: string; group_name: string }>>();
+
+    for (const profile of allProfiles) {
+      const cfg = readProxyConfig(profile);
+      const host = String(cfg.proxy_host || '').trim();
+      const port = String(cfg.proxy_port || '').trim();
+
+      if (!host || !port || host === '' || port === '0') continue;
+
+      const normalized = `${host.toLowerCase()}:${port}`;
+
+      if (!proxyMap.has(normalized)) {
+        proxyMap.set(normalized, []);
+      }
+      proxyMap.get(normalized)!.push({
+        user_id: profile.user_id,
+        name: profile.name || '',
+        serial_number: profile.serial_number || '',
+        group_name: profile.group_name || '',
+      });
+    }
+
+    // So sánh từng proxy đầu vào
+    const usedProxies: Array<{
+      proxy: string;
+      normalized: string;
+      profiles: Array<{ user_id: string; name: string; serial_number: string; group_name: string }>;
+    }> = [];
+    const unusedProxies: string[] = [];
+
+    for (const rawProxy of proxies) {
+      if (!rawProxy || !rawProxy.trim()) continue;
+      const normalized = normalizeProxyHost(rawProxy);
+      if (proxyMap.has(normalized)) {
+        usedProxies.push({
+          proxy: rawProxy.trim(),
+          normalized,
+          profiles: proxyMap.get(normalized)!,
+        });
+      } else {
+        unusedProxies.push(rawProxy.trim());
+      }
+    }
+
+    logger.info(`[Proxy Checker] Kết quả: ${usedProxies.length} đã dùng, ${unusedProxies.length} chưa dùng / ${proxies.length} tổng proxy.`);
+
+    res.json({
+      success: true,
+      total: proxies.filter(p => p && p.trim()).length,
+      used: usedProxies,
+      unused: unusedProxies,
+      totalProfilesScanned: allProfiles.length,
+    });
+  } catch (err: any) {
+    logger.error(`[Proxy Checker] Lỗi: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
@@ -399,14 +525,12 @@ app.post('/api/browser/start', async (req: Request, res: Response) => {
     const id = profileId || profileNo;
     logger.info(`[UI Request] Đang khởi động profile ${id}...`);
 
-    const launchArgs = getWindowPositionLaunchArgs(activeConnections.size);
-
     const connData = await adsPowerClient.startBrowser({
       profileId,
       profileNo,
       headless: !!headless,
       deleteCache: !!deleteCache,
-      launchArgs,
+      // Không truyền launchArgs → AdsPower sẽ mở giống như bấm nút Open trên UI
     });
 
     if (connData?.ws?.puppeteer) {
@@ -475,9 +599,11 @@ app.post('/api/browser/batch-start', async (req: Request, res: Response) => {
 
     for (let i = 0; i < profileIds.length; i++) {
       const id = profileIds[i];
-      const launchArgs = getWindowPositionLaunchArgs(i);
       try {
-        const connData = await adsPowerClient.startBrowser({ profileId: id, launchArgs });
+        const connData = await adsPowerClient.startBrowser({
+          profileId: id,
+          // Không truyền launchArgs → AdsPower sẽ mở giống như bấm nút Open trên UI
+        });
         if (connData?.ws?.puppeteer) {
           activeConnections.set(id, { debugPort: connData.debug_port, wsUrl: connData.ws.puppeteer });
           cdpManager.connect(id, connData.ws.puppeteer).catch(() => {});
@@ -694,8 +820,103 @@ app.post('/api/automation/facebook-login/batch-stop', async (req: Request, res: 
 });
 
 // ==========================================
-// 4. SKILL LIBRARY ENDPOINTS
+// FACEBOOK PAGE INVENTORY API (FEAT-007 Step 1)
 // ==========================================
+
+/** Start Page inventory scan job for an AdsPower profile */
+app.post('/api/page-inventory/scan', async (req: Request, res: Response) => {
+  try {
+    // Step 1: Validate input payload strictly BEFORE profile resolution and BEFORE job creation
+    const validation = validatePageInventoryScanInput(req.body);
+    if (!validation.valid || !validation.data) {
+      return res.status(400).json({
+        success: false,
+        error: validation.error || 'Dữ liệu đầu vào không hợp lệ.',
+      });
+    }
+
+    const { profileId, maxExpansions, timeoutMs, keepBrowserOpen, showUnresolved } = validation.data;
+
+    // Step 2: Resolve profile info if profileId is serial or name
+    let targetProfileId = profileId;
+    try {
+      const resolved = await adsPowerClient.getProfile(profileId);
+      if (resolved && resolved.user_id) {
+        targetProfileId = resolved.user_id;
+      }
+    } catch {}
+
+    // Step 3: Start scan job with strictly validated values
+    const job = facebookPageInventoryService.startScanJob(targetProfileId, {
+      maxExpansions,
+      timeoutMs,
+      keepBrowserOpen,
+      showUnresolved,
+    });
+
+    res.json({
+      success: true,
+      message: `Đã khởi tạo tiến trình quét Page cho profile ${targetProfileId}.`,
+      jobId: job.jobId,
+      job,
+    });
+  } catch (err: any) {
+    if (err.statusCode === 400) {
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    if (err.statusCode === 409) {
+      return res.status(409).json({ success: false, error: err.message });
+    }
+    logger.error(`Lỗi khi khởi chạy Page inventory scan: ${err.message}`);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/** Get status and results of a scan job */
+app.get('/api/page-inventory/jobs/:jobId', (req: Request, res: Response) => {
+  const jobId = String(req.params.jobId || '');
+  if (!jobId) {
+    return res.status(400).json({ success: false, error: 'Thiếu jobId.' });
+  }
+
+  const job = facebookPageInventoryService.getJob(jobId);
+  if (!job) {
+    return res.status(404).json({ success: false, error: `Không tìm thấy job với ID: ${jobId}` });
+  }
+
+  res.json({ success: true, job });
+});
+
+/** Cancel running scan job */
+app.post('/api/page-inventory/jobs/:jobId/cancel', (req: Request, res: Response) => {
+  const jobId = String(req.params.jobId || '');
+  if (!jobId) {
+    return res.status(400).json({ success: false, error: 'Thiếu jobId.' });
+  }
+
+  const job = facebookPageInventoryService.getJob(jobId);
+  if (!job) {
+    return res.status(404).json({ success: false, error: `Không tìm thấy job với ID: ${jobId}` });
+  }
+
+  facebookPageInventoryService.cancelJob(jobId);
+  res.json({ success: true, message: `Đã gửi yêu cầu hủy job ${jobId}.`, job: facebookPageInventoryService.getJob(jobId) });
+});
+
+app.delete('/api/page-inventory/jobs/:jobId', (req: Request, res: Response) => {
+  const jobId = String(req.params.jobId || '');
+  if (!jobId) {
+    return res.status(400).json({ success: false, error: 'Thiếu jobId.' });
+  }
+
+  const job = facebookPageInventoryService.getJob(jobId);
+  if (!job) {
+    return res.status(404).json({ success: false, error: `Không tìm thấy job với ID: ${jobId}` });
+  }
+
+  facebookPageInventoryService.cancelJob(jobId);
+  res.json({ success: true, message: `Đã hủy job ${jobId}.` });
+});
 app.get('/api/skills', (req: Request, res: Response) => {
   res.json({ skills: skillRepository.getAll() });
 });
@@ -826,6 +1047,192 @@ app.post('/api/healing/resolve', async (req: Request, res: Response) => {
 });
 
 // ==========================================
+// 6b. BROWSER PROVIDERS (AdsPower / taothaoAIClaw)
+// ==========================================
+
+/** Danh sách backend profile khả dụng cho UI (không kèm credential/proxy). */
+app.get('/api/providers', (req: Request, res: Response) => {
+  res.json({ success: true, providers: listProviders(), default: DEFAULT_BROWSER_PROVIDER });
+});
+
+/** Health check Local API của taothaoAIClaw (route ROOT `/health`). */
+app.get('/api/taothao/health', async (req: Request, res: Response) => {
+  const health = await taothaoClient.checkHealth();
+  res.status(health.ok ? 200 : 503).json({ success: health.ok, ...health, apiUrl: taothaoClient.baseUrl });
+});
+
+/**
+ * Danh sách profile taothao (CHỈ ĐỌC). `fetchAll=true` gom hết các trang.
+ * Payload đã whitelist trong client -> không có proxy.password/config.
+ */
+app.get('/api/taothao/profiles', async (req: Request, res: Response) => {
+  try {
+    const result = await taothaoClient.listProfiles({
+      page: Number(req.query.page) || 1,
+      limit: Number(req.query.limit) || 100,
+      groupId: typeof req.query.groupId === 'string' ? req.query.groupId : undefined,
+      search: typeof req.query.search === 'string' ? req.query.search : undefined,
+      fetchAll: req.query.fetchAll === 'true',
+    });
+    res.json({ success: true, ...result });
+  } catch (err: any) {
+    const code = err instanceof TaothaoApiError ? err.code : 'TAOTHAO_UNKNOWN';
+    const status = err instanceof TaothaoApiError && err.code === 'TAOTHAO_UNAVAILABLE' ? 503 : 502;
+    logger.error(`[taothao API] Lấy danh sách profile thất bại (${code}): ${err.message}`);
+    res.status(status).json({ success: false, code, error: err.message });
+  }
+});
+
+async function openOrFocusTaothaoProfile(
+  profileId: string,
+  knownRunningFolders?: Set<string>
+): Promise<{ reused: boolean }> {
+  const status = await taothaoClient.getStatus(profileId);
+  let isRunning = status.isRunning;
+
+  // Một số phiên bản API cập nhật `status` chậm hơn danh sách process đang chạy.
+  if (!isRunning && status.folder) {
+    const runningFolders = knownRunningFolders ?? new Set(
+      (await taothaoClient.listRunning()).map(item => item.folder)
+    );
+    isRunning = runningFolders.has(status.folder);
+  }
+
+  if (isRunning) {
+    await taothaoClient.maximizeProfile(profileId);
+    logger.info(`[taothao] Tái sử dụng và đưa cửa sổ đang chạy lên trước: ${profileId}`);
+    return { reused: true };
+  }
+
+  await taothaoProvider.startBrowser(profileId);
+  return { reused: false };
+}
+
+/** Mở một profile taothaoAIClaw, không chạy workflow hay automation. */
+app.post('/api/taothao/browser/start', async (req: Request, res: Response) => {
+  const profileId = typeof req.body?.profileId === 'string' ? req.body.profileId.trim() : '';
+  if (!profileId) {
+    return res.status(400).json({ success: false, error: 'Thiếu profileId taothaoAIClaw.' });
+  }
+
+  try {
+    const opened = await openOrFocusTaothaoProfile(profileId);
+    res.json({ success: true, profileId, reused: opened.reused });
+  } catch (err: any) {
+    const code = err instanceof TaothaoApiError ? err.code : 'TAOTHAO_UNKNOWN';
+    logger.error(`[taothao API] Mở profile ${profileId} thất bại (${code}): ${err.message}`);
+    res.status(502).json({ success: false, code, error: err.message });
+  }
+});
+
+/** Đóng một profile taothaoAIClaw, không ảnh hưởng workflow. */
+app.post('/api/taothao/browser/stop', async (req: Request, res: Response) => {
+  const profileId = typeof req.body?.profileId === 'string' ? req.body.profileId.trim() : '';
+  if (!profileId) {
+    return res.status(400).json({ success: false, error: 'Thiếu profileId taothaoAIClaw.' });
+  }
+
+  try {
+    const stopped = await taothaoProvider.stopBrowser(profileId);
+    res.json({ success: stopped, profileId });
+  } catch (err: any) {
+    const code = err instanceof TaothaoApiError ? err.code : 'TAOTHAO_UNKNOWN';
+    logger.error(`[taothao API] Đóng profile ${profileId} thất bại (${code}): ${err.message}`);
+    res.status(502).json({ success: false, code, error: err.message });
+  }
+});
+
+/**
+ * Dán danh sách ID hoặc tên profile và chỉ mở cửa sổ taothaoAIClaw.
+ * Tên trùng nhiều profile bị từ chối; khi đó người dùng phải dùng profileId.
+ */
+app.post('/api/taothao/browser/batch-start', async (req: Request, res: Response) => {
+  const rawIdentifiers: unknown[] = Array.isArray(req.body?.identifiers) ? req.body.identifiers : [];
+  const identifiers: string[] = [...new Set<string>(
+    rawIdentifiers
+      .filter((value: unknown): value is string => typeof value === 'string')
+      .map((value: string) => value.trim())
+      .filter(Boolean)
+  )];
+
+  if (identifiers.length === 0) {
+    return res.status(400).json({ success: false, error: 'Hãy nhập ít nhất một ID hoặc tên profile.' });
+  }
+  if (identifiers.length > 500) {
+    return res.status(400).json({ success: false, error: 'Mỗi lượt chỉ mở tối đa 500 profile.' });
+  }
+
+  const concurrency = Math.min(20, Math.max(1, Number(req.body?.concurrency) || 5));
+
+  try {
+    const resolved = await taothaoProvider.resolveProfiles(identifiers);
+    const runningFolders = new Set((await taothaoClient.listRunning()).map(item => item.folder));
+    const uniqueProfiles = [...new Map(
+      resolved.resolved.map(item => [item.profile.user_id, item])
+    ).values()];
+    const results: Array<{
+      identifier: string;
+      profileId: string;
+      name: string;
+      success: boolean;
+      reused?: boolean;
+      error?: string;
+    }> = new Array(uniqueProfiles.length);
+
+    let cursor = 0;
+    const worker = async () => {
+      while (true) {
+        const index = cursor++;
+        if (index >= uniqueProfiles.length) return;
+        const item = uniqueProfiles[index];
+        try {
+          const opened = await openOrFocusTaothaoProfile(item.profile.user_id, runningFolders);
+          results[index] = {
+            identifier: item.identifier,
+            profileId: item.profile.user_id,
+            name: item.profile.name || item.profile.user_id,
+            success: true,
+            reused: opened.reused,
+          };
+        } catch (err: any) {
+          results[index] = {
+            identifier: item.identifier,
+            profileId: item.profile.user_id,
+            name: item.profile.name || item.profile.user_id,
+            success: false,
+            error: err.message,
+          };
+        }
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, Math.max(1, uniqueProfiles.length)) }, () => worker())
+    );
+
+    const openedCount = results.filter(item => item.success).length;
+    const reusedCount = results.filter(item => item.success && item.reused).length;
+    const launchedCount = openedCount - reusedCount;
+    const failedCount = results.length - openedCount;
+    res.json({
+      success: true,
+      requestedCount: identifiers.length,
+      resolvedCount: uniqueProfiles.length,
+      openedCount,
+      reusedCount,
+      launchedCount,
+      failedCount,
+      notFound: resolved.notFound,
+      results,
+    });
+  } catch (err: any) {
+    const code = err instanceof TaothaoApiError ? err.code : 'TAOTHAO_UNKNOWN';
+    logger.error(`[taothao API] Mở batch profile thất bại (${code}): ${err.message}`);
+    res.status(502).json({ success: false, code, error: err.message });
+  }
+});
+
+// ==========================================
 // 7. WORKFLOW ENGINE (Phase 7)
 // ==========================================
 
@@ -847,7 +1254,18 @@ app.get('/api/workflow/presets', (req: Request, res: Response) => {
 /** Khởi chạy batch workflow */
 app.post('/api/workflow/run', async (req: Request, res: Response) => {
   try {
-    const { profileIds, profileIdentifiers, workflowName, steps, concurrency } = req.body;
+    const {
+      profileIds,
+      profileIdentifiers,
+      workflowName,
+      steps,
+      concurrency,
+      credentials,
+      provider,
+      googleAccounts,
+      autoCloseSuccess,
+      refreshChannels,
+    } = req.body;
 
     const targetList = profileIdentifiers || profileIds;
     if (!Array.isArray(targetList) || targetList.length === 0) {
@@ -856,19 +1274,54 @@ app.post('/api/workflow/run', async (req: Request, res: Response) => {
     if (!workflowName) {
       return res.status(400).json({ error: 'Cần workflowName' });
     }
+    if (provider !== undefined && !isBrowserProviderId(provider)) {
+      return res.status(400).json({ success: false, error: `Provider không hợp lệ: "${provider}".` });
+    }
+    if (googleAccounts !== undefined && typeof googleAccounts !== 'string') {
+      return res
+        .status(400)
+        .json({ success: false, error: 'googleAccounts phải là text "gmail,password,2fa" mỗi dòng một tài khoản.' });
+    }
+    // Engine là singleton: một batch mới sẽ xoá state của batch đang chạy -> chặn.
+    if (workflowEngine.getBatchStatus().engineState === 'running') {
+      return res.status(409).json({
+        success: false,
+        error: 'Đang có batch chạy. Hãy chờ hoàn thành hoặc bấm Cancel trước khi chạy batch mới.',
+      });
+    }
 
-    logger.info(`[Workflow API] Khởi chạy batch: ${targetList.length} profiles, workflow="${workflowName}", concurrency=${concurrency || 5}`);
+    // Google Account Login lấy credential PER-PROFILE từ chính profile AdsPower tương ứng.
+    // Không còn yêu cầu credentials chung ở cấp batch (tránh nhiễm chéo credential giữa các profile).
+    // Với taothaoAIClaw, credential đến từ danh sách người dùng dán (googleAccounts) —
+    // KHÔNG log nội dung này ở bất kỳ đâu.
+
+    logger.info(
+      `[Workflow API] Khởi chạy batch: ${targetList.length} profiles, provider="${provider ?? DEFAULT_BROWSER_PROVIDER}", workflow="${workflowName}", concurrency=${concurrency || 5}`
+    );
 
     const result = await workflowEngine.runBatch({
       profileIdentifiers: targetList,
       workflowName,
       steps,
       concurrency: concurrency || config.concurrency.maxProfiles,
+      credentials,
+      provider,
+      googleAccounts,
+      autoCloseSuccess: typeof autoCloseSuccess === 'boolean' ? autoCloseSuccess : undefined,
+      refreshChannels: refreshChannels === true,
     });
 
     res.json({ success: true, ...result });
   } catch (err: any) {
-
+    if (isWorkflowValidationError(err)) {
+      // Lỗi đầu vào của người dùng: KHÔNG có profile nào được mở.
+      logger.warn(`[Workflow API] Từ chối batch (đầu vào không hợp lệ): ${err.message}`);
+      return res.status(400).json({ success: false, error: err.message });
+    }
+    if (isWorkflowConflictError(err)) {
+      logger.warn(`[Workflow API] Từ chối batch (engine đang chạy): ${err.message}`);
+      return res.status(409).json({ success: false, error: err.message });
+    }
     logger.error(`[Workflow API] Lỗi khởi chạy batch: ${err.message}`);
     res.status(500).json({ success: false, error: err.message });
   }
@@ -901,6 +1354,79 @@ app.delete('/api/workflow/history', (req: Request, res: Response) => {
     res.status(400).json({ success: false, error: err.message });
   }
 });
+
+/** Chạy lại các task bị failed trong batch hiện tại */
+app.post('/api/workflow/retry-failed', (req: Request, res: Response) => {
+  try {
+    const { concurrency } = req.body;
+    const result = workflowEngine.retryFailed(concurrency);
+    res.json({
+      success: true,
+      ...result,
+      message: `Đã đưa ${result.retriedCount} task(s) vào queue retry. Bỏ qua ${result.skippedCount} task(s) not-found.`,
+    });
+  } catch (err: any) {
+    res.status(400).json({ success: false, error: err.message });
+  }
+});
+
+/** Metadata báo cáo YouTube của lần chạy gần nhất (UI dùng để hiện nút tải file). */
+app.get('/api/workflow/youtube-report', (req: Request, res: Response) => {
+  const report = youtubeRunStore.getLastReport();
+  if (!report) {
+    res.json({ success: true, report: null });
+    return;
+  }
+  // KHÔNG trả `filePath` (đường dẫn tuyệt đối trên máy) ra ngoài.
+  const { filePath, ...safe } = report;
+  res.json({ success: true, report: safe });
+});
+
+/** Tải file .xlsx của lần chạy gần nhất. Đường dẫn do server giữ, client KHÔNG truyền path. */
+app.get('/api/workflow/youtube-report/download', (req: Request, res: Response) => {
+  const report = youtubeRunStore.getLastReport();
+  if (!report) {
+    res.status(404).json({ success: false, error: 'Chưa có báo cáo YouTube nào trong phiên này.' });
+    return;
+  }
+  if (!fs.existsSync(report.filePath)) {
+    res.status(404).json({ success: false, error: `Không tìm thấy file báo cáo ${report.fileName} trên máy.` });
+    return;
+  }
+  res.download(report.filePath, report.fileName);
+});
+
+/**
+ * Kho Channel ID đã lưu theo từng profile. Đây là dữ liệu duy nhất khiến lượt chạy sau
+ * KHÔNG phải mở trình duyệt, nên UI cần xem/xoá được từng dòng.
+ */
+app.get('/api/youtube/channels', (req: Request, res: Response) => {
+  res.json({ success: true, total: youtubeChannelCache.size(), channels: youtubeChannelCache.list() });
+});
+
+/** Xoá một ánh xạ (profile đổi kênh / đọc sai) -> lượt sau đọc lại từ trình duyệt. */
+app.delete('/api/youtube/channels/:provider/:profileId', (req: Request, res: Response) => {
+  const provider = String(req.params.provider || '');
+  const profileId = String(req.params.profileId || '');
+  if (!isBrowserProviderId(provider)) {
+    res.status(400).json({ success: false, error: `Provider không hợp lệ: "${provider}".` });
+    return;
+  }
+  const removed = youtubeChannelCache.forget(provider, profileId);
+  if (!removed) {
+    res.status(404).json({ success: false, error: 'Không có Channel ID đã lưu cho profile này.' });
+    return;
+  }
+  res.json({ success: true, message: 'Đã xoá Channel ID đã lưu của profile.' });
+});
+
+/** Xoá toàn bộ kho. Thao tác không thể hoàn tác -> UI phải hỏi xác nhận trước khi gọi. */
+app.delete('/api/youtube/channels', (req: Request, res: Response) => {
+  const removed = youtubeChannelCache.clear();
+  logger.warn(`[YouTube API] Đã xoá toàn bộ kho Channel ID (${removed} bản ghi).`);
+  res.json({ success: true, removed, message: `Đã xoá ${removed} Channel ID đã lưu.` });
+});
+
 
 // ==========================================
 // ACCOUNT HUB (feature-flagged subsystem)

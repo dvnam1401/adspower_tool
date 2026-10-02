@@ -130,6 +130,18 @@ function adsStatusBadge(s) {
   return `<span class="badge ${cls}">${s}</span>`;
 }
 
+function warnBadges(a) {
+  const b = [];
+  if (a.duplicateProfile) b.push('<span class="badge badge-die" title="Trùng tên profile">TRÙNG TÊN</span>');
+  if (a.duplicateId)      b.push('<span class="badge badge-die" title="Trùng AdsPower ID">TRÙNG ID</span>');
+  if (a.duplicateHotmail) b.push('<span class="badge badge-die" title="Trùng hotmail">TRÙNG MAIL</span>');
+  const cm = a.channelMatchStatus;
+  if (cm === 'MATCHED')   b.push('<span class="badge badge-live" title="Đã khớp kênh Reup">KÊNH ✓</span>');
+  if (cm === 'PENDING')   b.push('<span class="badge badge-warn" title="Chưa tìm thấy kênh Reup">KÊNH ?</span>');
+  if (cm === 'AMBIGUOUS') b.push('<span class="badge badge-warn" title="Nhiều kết quả kênh Reup">KÊNH ⚠</span>');
+  return b.length ? b.join(' ') : '—';
+}
+
 function rowClass(a) {
   if (a.accountStatus === 'DIE') {
     return a.adspowerStatus === 'DELETED' ? 'row-die-deleted' : 'row-die-active';
@@ -149,7 +161,7 @@ function escHtml(s) {
 
 function renderTable(accounts) {
   if (!accounts.length) {
-    tbody.innerHTML = `<tr class="ah-empty-row"><td colspan="9">Không có tài khoản nào.</td></tr>`;
+    tbody.innerHTML = `<tr class="ah-empty-row"><td colspan="10">Không có tài khoản nào.</td></tr>`;
     return;
   }
   tbody.innerHTML = accounts.map(a => {
@@ -169,6 +181,7 @@ function renderTable(accounts) {
         <td>${escHtml(a.loginId)}${copyBtn(a.loginId)}</td>
         <td>${escHtml(a.hotmail)}${copyBtn(a.hotmail)}</td>
         <td>${a.youtubeChannelUrl ? `<a href="${escHtml(a.youtubeChannelUrl)}" target="_blank" rel="noopener" class="ah-link">▶ Link</a>` : '—'}</td>
+        <td>${warnBadges(a)}</td>
         <td>${lastSync}</td>
         <td>
           <button class="btn btn-sm" onclick="openAccount('${a.id}')">🔍 Chi tiết</button>
@@ -496,11 +509,288 @@ function initSSE() {
     loadAccounts();
   });
   sse.addEventListener('sync_job_done', () => loadAccounts());
+  sse.addEventListener('notification', (e) => {
+    try {
+      const n = JSON.parse(e.data);
+      toast(`🔔 ${n.title || 'Cảnh báo mới'}`, 'warn');
+    } catch { /* ignore */ }
+    refreshNotifCount();
+    if (!notifModal.classList.contains('hidden')) loadNotifications();
+  });
+  sse.addEventListener('notification_count', (e) => {
+    try { setNotifCount(JSON.parse(e.data).open); } catch { /* ignore */ }
+  });
   sse.onerror = () => {
     // SSE not available yet (Phase 2 stub) — silent fail
     sse.close();
   };
 }
+
+// ============================================================
+// Notifications panel (spec §1, §4.1)
+// ============================================================
+const notifModal   = document.getElementById('notif-modal');
+const notifCountEl = document.getElementById('ah-notif-count');
+const notifListEl  = document.getElementById('notif-list');
+
+function setNotifCount(n) {
+  const open = Number(n) || 0;
+  notifCountEl.textContent = String(open);
+  notifCountEl.classList.toggle('hidden', open === 0);
+}
+
+async function refreshNotifCount() {
+  try {
+    const r = await apiFetch('/notifications/count');
+    setNotifCount(r.open);
+  } catch { /* subsystem off */ }
+}
+
+async function loadNotifications() {
+  notifListEl.innerHTML = 'Đang tải…';
+  try {
+    const items = await apiFetch('/notifications?status=OPEN');
+    if (!items.length) {
+      notifListEl.innerHTML = '<div class="ah-notif-empty">Không có cảnh báo nào.</div>';
+      return;
+    }
+    notifListEl.innerHTML = items.map((n) => `
+      <div class="ah-notif-item" data-id="${n.id}">
+        <div class="ah-notif-main">
+          <div class="ah-notif-title">${escHtml(n.title)}</div>
+          ${n.detail ? `<div class="ah-notif-detail">${escHtml(n.detail)}</div>` : ''}
+          <div class="ah-notif-meta">${escHtml(n.type)} · ${new Date(n.createdAt).toLocaleString('vi-VN')}</div>
+        </div>
+        <div class="ah-notif-actions">
+          <button class="btn btn-sm btn-primary" onclick="resolveNotif('${n.id}')">✓ Đã xử lý</button>
+          <button class="btn btn-sm" onclick="dismissNotif('${n.id}')">Bỏ qua</button>
+        </div>
+      </div>`).join('');
+  } catch (e) {
+    notifListEl.innerHTML = `<div class="ah-notif-empty">${escHtml(e.message)}</div>`;
+  }
+}
+
+window.resolveNotif = async (id) => {
+  try {
+    await apiFetch(`/notifications/${id}/resolve`, { method: 'POST' });
+    toast('Đã đánh dấu xử lý', 'success');
+    await loadNotifications();
+    await refreshNotifCount();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+window.dismissNotif = async (id) => {
+  try {
+    await apiFetch(`/notifications/${id}/dismiss`, { method: 'POST' });
+    await loadNotifications();
+    await refreshNotifCount();
+  } catch (e) { toast(e.message, 'error'); }
+};
+
+document.getElementById('btn-notifications').addEventListener('click', () => {
+  notifModal.classList.remove('hidden');
+  loadNotifications();
+});
+document.querySelectorAll('[data-modal="notif-modal"]').forEach((el) =>
+  el.addEventListener('click', () => notifModal.classList.add('hidden')));
+notifModal.querySelector('.ah-modal-backdrop')?.addEventListener('click', () => notifModal.classList.add('hidden'));
+
+document.getElementById('btn-dup-scan').addEventListener('click', async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    const r = await apiFetch('/duplicates/scan', { method: 'POST' });
+    const flagged = r.flagged ?? r.total ?? 0;
+    toast(`Quét trùng xong: ${flagged} tài khoản bị gắn cờ`, flagged ? 'warn' : 'success');
+    await loadAccounts();
+    await refreshNotifCount();
+  } catch (err) { toast(err.message, 'error'); }
+  finally { btn.disabled = false; }
+});
+
+// ============================================================
+// Sheet mapping config (Phase 1 — self-service mapping)
+// ============================================================
+const SYSTEM_FIELDS = [
+  'profileName', 'adspowerUserId', 'adspowerSerialNumber', 'loginId', 'password',
+  'hotmail', 'hotmailPassword', 'recoveryMail', 'youtubeChannelUrl',
+  'accountStatus', 'country', 'linkedContent', 'note',
+];
+
+const mapModal = document.getElementById('mapping-modal');
+const mapState = { sources: [], sourceId: null, tabs: [], headers: [] };
+
+function colLetter(i) {
+  let s = '', n = i;
+  do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+  return s;
+}
+
+function fillSelect(sel, items, value, label, placeholder) {
+  sel.innerHTML = (placeholder ? `<option value="">${placeholder}</option>` : '')
+    + items.map((it) => `<option value="${escHtml(String(value(it)))}">${escHtml(String(label(it)))}</option>`).join('');
+}
+
+async function openMapping() {
+  mapModal.classList.remove('hidden');
+  await loadSources();
+}
+
+async function loadSources() {
+  mapState.sources = await apiFetch('/sheet-sources');
+  fillSelect(document.getElementById('map-source-select'), mapState.sources,
+    (s) => s.id, (s) => `${s.name} (${s.spreadsheetId})`, '— Chọn nguồn —');
+  fillSelect(document.getElementById('map-field-select'), SYSTEM_FIELDS,
+    (f) => f, (f) => f, '— Trường hệ thống —');
+  if (mapState.sources.length) {
+    document.getElementById('map-source-select').value = mapState.sourceId || mapState.sources[0].id;
+    mapState.sourceId = document.getElementById('map-source-select').value;
+    await loadTabsAndMappings();
+  } else {
+    mapState.sourceId = null;
+  }
+}
+
+async function loadTabsAndMappings() {
+  if (!mapState.sourceId) return;
+  mapState.tabs = await apiFetch(`/sheet-sources/${mapState.sourceId}/tabs`);
+  fillSelect(document.getElementById('map-tab-select'), mapState.tabs,
+    (t) => t.title, (t) => t.title, '— Chọn tab —');
+  fillSelect(document.getElementById('map-country-tab-select'), mapState.tabs,
+    (t) => t.title, (t) => t.title, '— Tab Reup —');
+  await renderMappings();
+  await renderCountryTabs();
+}
+
+async function renderMappings() {
+  const rows = await apiFetch(`/sheet-sources/${mapState.sourceId}/mappings`);
+  document.getElementById('map-mappings-tbody').innerHTML = rows.map((m) => `
+    <tr class="${m.needsAttention ? 'map-attention' : ''}">
+      <td>${escHtml(m.systemField || m.customFieldId || '?')}</td>
+      <td>${escHtml(m.columnLetter || colLetter(m.columnIndex))}</td>
+      <td>${escHtml(m.mappedHeader || '')}${m.needsAttention ? ' ⚠️' : ''}</td>
+      <td>${m.isKeyCandidate ? '🔑' : ''}</td>
+      <td><button class="btn btn-sm btn-ghost" onclick="delMapping('${m.id}')">✕</button></td>
+    </tr>`).join('') || '<tr><td colspan="5" class="map-empty">Chưa có mapping</td></tr>';
+}
+
+async function renderCountryTabs() {
+  const rows = await apiFetch(`/sheet-sources/${mapState.sourceId}/country-tabs`);
+  document.getElementById('map-country-tbody').innerHTML = rows.map((c) => `
+    <tr>
+      <td>${escHtml(c.country)}</td>
+      <td>${escHtml(c.tabTitle || '(chưa gán)')}</td>
+      <td><button class="btn btn-sm btn-ghost" onclick="delCountry('${c.id}')">✕</button></td>
+    </tr>`).join('') || '<tr><td colspan="3" class="map-empty">Chưa có ánh xạ quốc gia</td></tr>';
+}
+
+window.delMapping = async (id) => {
+  await apiFetch(`/sheet-sources/${mapState.sourceId}/mappings/${id}`, { method: 'DELETE' });
+  toast('Đã xoá mapping'); await renderMappings();
+};
+window.delCountry = async (id) => {
+  await apiFetch(`/sheet-sources/${mapState.sourceId}/country-tabs/${id}`, { method: 'DELETE' });
+  toast('Đã xoá ánh xạ quốc gia'); await renderCountryTabs();
+};
+
+// ---- wiring ----
+document.getElementById('btn-open-mapping').addEventListener('click', () => openMapping().catch((e) => toast(e.message, 'error')));
+document.querySelectorAll('[data-modal="mapping-modal"]').forEach((el) =>
+  el.addEventListener('click', () => mapModal.classList.add('hidden')));
+mapModal.querySelector('.ah-modal-backdrop')?.addEventListener('click', () => mapModal.classList.add('hidden'));
+
+document.getElementById('map-source-select').addEventListener('change', async (e) => {
+  mapState.sourceId = e.target.value || null;
+  mapState.headers = [];
+  document.getElementById('map-preview-wrap').innerHTML = '';
+  if (mapState.sourceId) await loadTabsAndMappings().catch((err) => toast(err.message, 'error'));
+});
+
+document.getElementById('map-add-source-btn').addEventListener('click', async () => {
+  const name = document.getElementById('map-new-name').value.trim();
+  const spreadsheetId = document.getElementById('map-new-sid').value.trim();
+  if (!name || !spreadsheetId) return toast('Nhập tên và spreadsheet ID', 'error');
+  try {
+    const src = await apiFetch('/sheet-sources', { method: 'POST', body: JSON.stringify({ name, spreadsheetId }) });
+    mapState.sourceId = src.id;
+    document.getElementById('map-new-name').value = '';
+    document.getElementById('map-new-sid').value = '';
+    toast('Đã thêm nguồn'); await loadSources();
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+document.getElementById('map-inspect-btn').addEventListener('click', async () => {
+  if (!mapState.sourceId) return toast('Chọn nguồn trước', 'error');
+  try {
+    await apiFetch(`/sheet-sources/${mapState.sourceId}/inspect`, { method: 'POST', body: '{}' });
+    toast('Đã nạp danh sách tab'); await loadTabsAndMappings();
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+document.getElementById('map-preview-btn').addEventListener('click', async () => {
+  const tabTitle = document.getElementById('map-tab-select').value;
+  if (!mapState.sourceId || !tabTitle) return toast('Chọn nguồn và tab', 'error');
+  try {
+    const { headers, rows } = await apiFetch(`/sheet-sources/${mapState.sourceId}/schema`,
+      { method: 'POST', body: JSON.stringify({ tabTitle }) });
+    mapState.headers = headers;
+    fillSelect(document.getElementById('map-col-select'), headers.map((h, i) => ({ h, i })),
+      (o) => o.i, (o) => `${colLetter(o.i)} — ${o.h || '(trống)'}`, '— Chọn cột —');
+    document.getElementById('map-preview-wrap').innerHTML = `
+      <table class="ah-table map-preview">
+        <thead><tr>${headers.map((h, i) => `<th>${colLetter(i)}<br>${escHtml(h)}</th>`).join('')}</tr></thead>
+        <tbody>${rows.map((r) => `<tr>${headers.map((_, i) => `<td>${escHtml(r[i] || '')}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table>`;
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+document.getElementById('map-add-mapping-btn').addEventListener('click', async () => {
+  const systemField = document.getElementById('map-field-select').value;
+  const colVal = document.getElementById('map-col-select').value;
+  if (!systemField || colVal === '') return toast('Chọn trường và cột', 'error');
+  const columnIndex = Number(colVal);
+  try {
+    await apiFetch(`/sheet-sources/${mapState.sourceId}/mappings`, {
+      method: 'POST',
+      body: JSON.stringify({
+        systemField, columnIndex, columnLetter: colLetter(columnIndex),
+        mappedHeader: mapState.headers[columnIndex] || null,
+        isKeyCandidate: document.getElementById('map-key-chk').checked,
+      }),
+    });
+    document.getElementById('map-key-chk').checked = false;
+    toast('Đã thêm mapping'); await renderMappings();
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+document.getElementById('map-add-country-btn').addEventListener('click', async () => {
+  const country = document.getElementById('map-country-input').value.trim();
+  const tabTitle = document.getElementById('map-country-tab-select').value || null;
+  if (!country) return toast('Nhập quốc gia', 'error');
+  const tab = mapState.tabs.find((t) => t.title === tabTitle);
+  try {
+    await apiFetch(`/sheet-sources/${mapState.sourceId}/country-tabs`, {
+      method: 'POST',
+      body: JSON.stringify({ country, tabId: tab?.id ?? null, tabTitle }),
+    });
+    document.getElementById('map-country-input').value = '';
+    toast('Đã thêm ánh xạ quốc gia'); await renderCountryTabs();
+  } catch (e) { toast(e.message, 'error'); }
+});
+
+document.getElementById('map-reconcile-btn').addEventListener('click', async () => {
+  const tabTitle = document.getElementById('map-tab-select').value;
+  if (!mapState.sourceId || !tabTitle) return toast('Chọn nguồn và tab', 'error');
+  try {
+    const body = mapState.headers.length ? { headers: mapState.headers } : { tabTitle };
+    const report = await apiFetch(`/sheet-sources/${mapState.sourceId}/reconcile-mappings`,
+      { method: 'POST', body: JSON.stringify(body) });
+    const healed = report.healed?.length ?? 0;
+    const flagged = report.orphaned?.length ?? 0;
+    toast(`Tự sửa xong: ${healed} cột dời, ${flagged} cần chú ý`, flagged ? 'error' : 'success');
+  } catch (e) { toast(e.message, 'error'); }
+});
 
 // ============================================================
 // Bootstrap
@@ -509,4 +799,5 @@ function initSSE() {
   await checkHealth();
   await loadAccounts();
   initSSE();
+  await refreshNotifCount();
 })();

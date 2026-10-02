@@ -10,6 +10,7 @@ let allSkills = [];
 let logEntries = [];
 let currentPage = 1;
 let currentPageSize = 50;
+let profileSourceStatus = { adspower: true, taothao: true };
 
 let authToken = localStorage.getItem('adspower_auth_token') || '';
 
@@ -100,7 +101,7 @@ function initAuth() {
           localStorage.setItem('adspower_auth_token', authToken);
           hideLoginScreen();
           showToast(`🎉 Xin chào, ${data.user.username}! Đăng nhập thành công.`, 'success');
-          
+
           const userEl = document.getElementById('sidebar-username');
           const avatarEl = document.getElementById('sidebar-user-avatar');
           if (userEl) userEl.textContent = data.user.username;
@@ -147,7 +148,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   initSkillModal();
   initHealingMonitor();
   initWorkflowRunner();
-  
+  initPageInventory();
+  initYoutubeChannels();
+
   const isAuthenticated = await checkAuthStatus();
   if (isAuthenticated) {
     fetchStatus();
@@ -155,6 +158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     fetchSkills();
     fetchHealingEvents();
     fetchWorkflowStatus();
+    loadYoutubeChannels();
 
     // Auto sync active browser profile status every 10s
     setInterval(() => {
@@ -190,6 +194,10 @@ function initNavigation() {
       title: 'Workflow Runner',
       desc: 'Điều phối batch workflow đa profile với concurrency limiter, checkpoint và điều khiển real-time'
     },
+    'tab-youtube': {
+      title: 'Kho Channel ID YouTube',
+      desc: 'Ánh xạ profile → Channel ID đã đọc được; còn bản ghi thì lượt chạy sau không phải mở trình duyệt'
+    },
     'tab-logs': {
       title: 'Live Logs & Telemetry Console',
       desc: 'Theo dõi luồng log, sự kiện mạng và quyết định của Agent theo thời gian thực'
@@ -197,6 +205,14 @@ function initNavigation() {
     'tab-settings': {
       title: 'Cấu Hình Hệ Thống & AI (Settings)',
       desc: 'Tùy chỉnh AdsPower API, giới hạn luồng tự động hóa và kết nối 9router / Gemini AI'
+    },
+    'tab-account-hub': {
+      title: 'Account Data Hub',
+      desc: 'Quản lý tài khoản tập trung — đồng bộ Google Sheets, trạng thái AdsPower và đối soát tự động'
+    },
+    'tab-page-inventory': {
+      title: 'Quản Lý Quyền Page (Step 1 Inventory)',
+      desc: 'Tự động quét và lập danh sách Facebook Pages do AdsPower profile quản lý với minh chứng URL & GraphQL'
     }
   };
 
@@ -220,7 +236,12 @@ function initNavigation() {
 
       if (pageMeta[targetTab]) {
         headerTitle.textContent = pageMeta[targetTab].title;
-        headerDesc.textContent = pageMeta[targetTab].desc;
+        headerDesc.textContent  = pageMeta[targetTab].desc;
+      }
+
+      // Lazy-init Account Hub on first visit
+      if (targetTab === 'tab-account-hub') {
+        AccountHub.lazyInit();
       }
 
       // Close mobile sidebar if open
@@ -409,7 +430,7 @@ async function loadSettingsToModal() {
 
     if (elAdsUrl && data.adspower?.apiUrl) elAdsUrl.value = data.adspower.apiUrl;
     if (elConcurrency && data.concurrency?.maxProfiles) elConcurrency.value = data.concurrency.maxProfiles;
-    
+
     if (data.llm) {
       if (elAiProvider && data.llm.provider) elAiProvider.value = data.llm.provider;
       if (elAiModel && data.llm.model) elAiModel.value = data.llm.model;
@@ -427,6 +448,18 @@ async function loadSettingsToModal() {
     const elAutoClose = document.getElementById('setting-autoclose-success');
     if (elAutoClose && data.automation?.closeSuccessBrowsers !== undefined) {
       elAutoClose.checked = Boolean(data.automation.closeSuccessBrowsers);
+    }
+
+    // API Key YouTube KHÔNG được server trả về -> chỉ hiện trạng thái, ô nhập luôn để trống.
+    const elYtKey = document.getElementById('setting-youtube-key');
+    const elYtState = document.getElementById('setting-youtube-key-state');
+    if (elYtKey) elYtKey.value = '';
+    if (elYtState) {
+      const ytConfigured = Boolean(data.youtube?.apiKeyConfigured);
+      elYtState.textContent = ytConfigured ? 'Đã cấu hình' : 'Chưa cấu hình';
+      elYtState.className = ytConfigured
+        ? 'text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-semibold'
+        : 'text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-semibold';
     }
 
     const elWinTiling = document.getElementById('setting-window-tiling');
@@ -503,6 +536,10 @@ async function saveSettingsFromModal() {
     },
   };
 
+  // Chỉ gửi khi người dùng thực sự nhập key mới — để trống = giữ nguyên key đã lưu.
+  const ytKeyVal = document.getElementById('setting-youtube-key')?.value?.trim();
+  if (ytKeyVal) payload.youtube = { apiKey: ytKeyVal };
+
   try {
     const res = await fetch('/api/config', {
       method: 'POST',
@@ -518,6 +555,8 @@ async function saveSettingsFromModal() {
         headerModel.textContent = `${payload.llm.provider === '9router' ? '9router' : 'AI'}: ${payload.llm.model}`;
       }
       fetchStatus();
+      // Đọc lại cấu hình: xoá ô key vừa nhập và cập nhật badge trạng thái.
+      loadSettingsToModal();
     } else {
       showToast(`Lỗi khi lưu cấu hình: ${data.error}`, 'error');
     }
@@ -569,7 +608,7 @@ async function fetchProfiles(page = 1) {
         <td colspan="7" class="px-5 py-12 text-center text-slate-500">
           <div class="flex flex-col items-center justify-center space-y-2">
             <i class="ph-bold ph-spinner animate-spin text-2xl text-brand-400"></i>
-            <p class="text-sm font-sans">Đang đồng bộ toàn bộ 100% profiles từ AdsPower...</p>
+            <p class="text-sm font-sans">Đang đồng bộ profiles từ AdsPower và taothaoAIClaw...</p>
           </div>
         </td>
       </tr>
@@ -577,19 +616,82 @@ async function fetchProfiles(page = 1) {
   }
 
   try {
-    // Luôn luôn gọi fetchAll=true để lấy toàn bộ 100% profiles trên tất cả các nhóm
-    const res = await fetch(`/api/profiles?fetchAll=true`);
-    const data = await res.json();
+    // Hai nguồn độc lập: một nguồn lỗi không được làm mất danh sách của nguồn còn lại.
+    const [adsResult, taothaoResult] = await Promise.allSettled([
+      fetch('/api/profiles?fetchAll=true'),
+      fetch('/api/taothao/profiles?fetchAll=true'),
+    ]);
 
-    allProfiles = data.list || [];
-    
+    const readJsonResponse = async (result, providerLabel) => {
+      if (result.status === 'rejected') throw result.reason;
+      const data = await result.value.json();
+      if (!result.value.ok || data.success === false) {
+        throw new Error(data.error || `Không thể tải profile ${providerLabel}`);
+      }
+      return data;
+    };
+
+    let adsProfiles = [];
+    let taothaoProfiles = [];
+    const sourceErrors = [];
+
+    try {
+      const data = await readJsonResponse(adsResult, 'AdsPower');
+      adsProfiles = (data.list || []).map(p => ({
+        ...p,
+        provider: 'adspower',
+        provider_label: 'AdsPower',
+      }));
+      profileSourceStatus.adspower = true;
+    } catch (err) {
+      profileSourceStatus.adspower = false;
+      sourceErrors.push(`AdsPower: ${err.message}`);
+    }
+
+    try {
+      const data = await readJsonResponse(taothaoResult, 'taothaoAIClaw');
+      taothaoProfiles = (data.list || []).map((p, index) => ({
+        user_id: p.profileId,
+        name: p.name || p.profileId,
+        serial_number: p.stt ?? index + 1,
+        group_id: `taothao:${p.groupId || 'ungrouped'}`,
+        group_name: p.groupId ? `Nhóm ${p.groupId.slice(0, 8)}…` : 'Chưa phân nhóm',
+        ip: '',
+        ip_country: '',
+        provider: 'taothao',
+        provider_label: 'taothaoAIClaw',
+        isRunning: Boolean(p.isRunning),
+        hasProxy: Boolean(p.hasProxy),
+        folder: p.folder || null,
+      }));
+      profileSourceStatus.taothao = true;
+    } catch (err) {
+      profileSourceStatus.taothao = false;
+      sourceErrors.push(`taothaoAIClaw: ${err.message}`);
+    }
+
+    if (adsProfiles.length === 0 && taothaoProfiles.length === 0 && sourceErrors.length === 2) {
+      throw new Error(sourceErrors.join(' | '));
+    }
+
+    allProfiles = [...adsProfiles, ...taothaoProfiles];
+    selectedProfileIds = new Set(
+      [...selectedProfileIds].filter(id => adsProfiles.some(p => p.user_id === id))
+    );
+
+    if (sourceErrors.length > 0) {
+      showToast(`Một nguồn profile chưa kết nối: ${sourceErrors.join(' | ')}`, 'warn');
+    }
+
     // Update stats
     const totalCount = allProfiles.length;
     document.getElementById('stat-total-profiles').textContent = totalCount;
     document.getElementById('badge-nav-profiles').textContent = totalCount;
 
-    populateCDPProfileSelector(allProfiles);
-    
+    const adsPowerProfiles = allProfiles.filter(p => p.provider === 'adspower');
+    populateCDPProfileSelector(adsPowerProfiles);
+    populatePageInventoryProfileSelector(adsPowerProfiles);
+
     // ⚡ Render table IMMEDIATELY (under 100ms) with client-side pagination
     renderProfiles();
 
@@ -642,6 +744,7 @@ function getFilteredProfiles() {
   const search = (document.getElementById('input-search')?.value || '').toLowerCase().trim();
   const selectedGroupId = document.getElementById('select-group')?.value;
   const selectedStatus = document.getElementById('select-status')?.value || 'all';
+  const selectedSource = document.getElementById('select-profile-source')?.value || 'all';
 
   return allProfiles.filter(p => {
     const matchSearch =
@@ -651,17 +754,19 @@ function getFilteredProfiles() {
       p.name?.toLowerCase().includes(search) ||
       p.ip?.toLowerCase().includes(search) ||
       p.group_name?.toLowerCase().includes(search) ||
+      p.provider_label?.toLowerCase().includes(search) ||
       (p.username && p.username.toLowerCase().includes(search));
 
-    const matchGroup = !selectedGroupId || p.group_id === selectedGroupId;
+    const matchGroup = !selectedGroupId || (p.provider === 'adspower' && p.group_id === selectedGroupId);
+    const matchSource = selectedSource === 'all' || p.provider === selectedSource;
 
-    const isActive = activeProfileIds.has(p.user_id);
+    const isActive = p.provider === 'taothao' ? Boolean(p.isRunning) : activeProfileIds.has(p.user_id);
     const matchStatus =
       selectedStatus === 'all' ||
       (selectedStatus === 'active' && isActive) ||
       (selectedStatus === 'inactive' && !isActive);
 
-    return matchSearch && matchGroup && matchStatus;
+    return matchSearch && matchGroup && matchSource && matchStatus;
   });
 }
 
@@ -700,10 +805,13 @@ function renderProfiles() {
   // Sync header 'Select All' checkbox (#chk-select-all) to ONLY current page items
   const selectAll = document.getElementById('chk-select-all');
   if (selectAll) {
-    if (pageItems.length > 0) {
-      selectAll.checked = pageItems.every(p => selectedProfileIds.has(p.user_id));
+    const selectableItems = pageItems.filter(p => p.provider === 'adspower');
+    if (selectableItems.length > 0) {
+      selectAll.checked = selectableItems.every(p => selectedProfileIds.has(p.user_id));
+      selectAll.disabled = false;
     } else {
       selectAll.checked = false;
+      selectAll.disabled = true;
     }
   }
 
@@ -739,14 +847,20 @@ function renderProfiles() {
   }
 
   tbody.innerHTML = pageItems.map(p => {
-    const isActive = activeProfileIds.has(p.user_id);
-    const isSelected = selectedProfileIds.has(p.user_id);
-    const proxyInfo = p.ip ? `${p.ip} (${(p.ip_country || 'N/A').toUpperCase()})` : 'Mặc định';
+    const isTaothao = p.provider === 'taothao';
+    const isActive = isTaothao ? Boolean(p.isRunning) : activeProfileIds.has(p.user_id);
+    const isSelected = !isTaothao && selectedProfileIds.has(p.user_id);
+    const proxyInfo = isTaothao
+      ? (p.hasProxy ? 'Đã cấu hình proxy' : 'Không dùng proxy')
+      : (p.ip ? `${p.ip} (${(p.ip_country || 'N/A').toUpperCase()})` : 'Mặc định');
 
     return `
       <tr class="hover:bg-surface-850/60 transition group ${isSelected ? 'bg-brand-950/30' : ''}">
         <td class="px-4 py-3.5 text-center">
-          <input type="checkbox" data-profile-id="${p.user_id}" ${isSelected ? 'checked' : ''} onchange="toggleSelectProfile('${p.user_id}', this.checked)" class="profile-chk rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-0 cursor-pointer">
+          ${isTaothao
+            ? '<i class="ph-bold ph-eye text-sky-400" title="Profile taothaoAIClaw đang ở chế độ hiển thị"></i>'
+            : `<input type="checkbox" data-profile-id="${p.user_id}" ${isSelected ? 'checked' : ''} onchange="toggleSelectProfile('${p.user_id}', this.checked)" class="profile-chk rounded bg-slate-800 border-slate-700 text-brand-500 focus:ring-0 cursor-pointer">`
+          }
         </td>
         <td class="px-4 py-3.5">
           <span class="inline-flex items-center px-2 py-0.5 rounded-lg text-xs font-mono font-bold bg-slate-800 text-brand-300 border border-slate-700">
@@ -756,6 +870,9 @@ function renderProfiles() {
         <td class="px-4 py-3.5">
           <div class="flex flex-col">
             <span class="font-medium text-white group-hover:text-brand-300 transition">${escapeHtml(p.name || 'Unnamed')}</span>
+            <span class="inline-flex self-start mt-1 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide ${isTaothao ? 'bg-sky-500/10 text-sky-300 border border-sky-500/20' : 'bg-violet-500/10 text-violet-300 border border-violet-500/20'}">
+              ${isTaothao ? 'taothaoAIClaw' : 'AdsPower'}
+            </span>
             <div class="flex items-center space-x-1.5 mt-0.5 text-slate-500 font-mono text-[11px]">
               <span class="select-all">${p.user_id}</span>
               <button onclick="copyToClipboard('${p.user_id}', this)" class="hover:text-slate-300 p-0.5" title="Copy ID">
@@ -788,17 +905,27 @@ function renderProfiles() {
         </td>
         <td class="px-4 py-3.5 text-right font-sans">
           <div class="flex items-center justify-end space-x-1.5">
-            <button onclick="triggerFBLogin('${p.user_id}', '${escapeHtml(p.name || '')}')" class="px-2.5 py-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/60 text-indigo-300 border border-indigo-500/40 text-xs font-semibold transition inline-flex items-center gap-1" title="Tự động đăng nhập Facebook + 2FA">
-              <i class="ph-bold ph-lightning"></i> Auto Login
-            </button>
             ${
-              isActive
-                ? `<button id="btn-toggle-${p.user_id}" onclick="stopBrowser('${p.user_id}')" class="px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 text-xs font-semibold transition inline-flex items-center gap-1">
-                     <i class="ph-bold ph-stop"></i> Đóng
-                   </button>`
-                : `<button id="btn-toggle-${p.user_id}" onclick="startBrowser('${p.user_id}')" class="px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold shadow-md shadow-brand-500/20 transition inline-flex items-center gap-1">
-                     <i class="ph-bold ph-play"></i> Mở
-                   </button>`
+              isTaothao
+                ? `${isActive
+                    ? `<button id="btn-taothao-toggle-${p.user_id}" onclick="stopTaothaoBrowser('${p.user_id}')" class="px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 text-xs font-semibold transition inline-flex items-center gap-1">
+                         <i class="ph-bold ph-stop"></i> Đóng
+                       </button>`
+                    : `<button id="btn-taothao-toggle-${p.user_id}" onclick="startTaothaoBrowser('${p.user_id}')" class="px-2.5 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-semibold shadow-md shadow-sky-500/20 transition inline-flex items-center gap-1">
+                         <i class="ph-bold ph-play"></i> Mở
+                       </button>`}
+                  `
+                : `<button onclick="triggerFBLogin('${p.user_id}', '${escapeHtml(p.name || '')}')" class="px-2.5 py-1.5 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/60 text-indigo-300 border border-indigo-500/40 text-xs font-semibold transition inline-flex items-center gap-1" title="Tự động đăng nhập Facebook + 2FA">
+                     <i class="ph-bold ph-lightning"></i> Auto Login
+                   </button>
+                   ${isActive
+                     ? `<button id="btn-toggle-${p.user_id}" onclick="stopBrowser('${p.user_id}')" class="px-2.5 py-1.5 rounded-lg bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 text-xs font-semibold transition inline-flex items-center gap-1">
+                          <i class="ph-bold ph-stop"></i> Đóng
+                        </button>`
+                     : `<button id="btn-toggle-${p.user_id}" onclick="startBrowser('${p.user_id}')" class="px-2.5 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold shadow-md shadow-brand-500/20 transition inline-flex items-center gap-1">
+                          <i class="ph-bold ph-play"></i> Mở
+                        </button>`}
+                  `
             }
             <button onclick="openProfileDrawer('${p.user_id}')" class="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition" title="Xem chi tiết">
               <i class="ph-bold ph-dots-three-vertical text-base"></i>
@@ -819,6 +946,11 @@ function initFiltersAndActions() {
   });
 
   document.getElementById('select-group')?.addEventListener('change', () => {
+    currentPage = 1;
+    renderProfiles();
+  });
+
+  document.getElementById('select-profile-source')?.addEventListener('change', () => {
     currentPage = 1;
     renderProfiles();
   });
@@ -854,7 +986,7 @@ function initFiltersAndActions() {
   });
 
   document.getElementById('btn-fetch-all-profiles')?.addEventListener('click', () => {
-    showToast('Đang làm mới toàn bộ dữ liệu từ AdsPower...', 'info');
+    showToast('Đang làm mới dữ liệu từ AdsPower và taothaoAIClaw...', 'info');
     fetchProfiles(1);
   });
 
@@ -864,6 +996,8 @@ function initFiltersAndActions() {
     fetchProfiles(1);
     fetchSkills();
   });
+
+  initTaothaoListLauncher();
 
   // Concurrency System Config Save Handler
   const btnSaveConcurrency = document.getElementById('btn-save-concurrency');
@@ -908,7 +1042,7 @@ function initFiltersAndActions() {
   // Select all checkbox (selects ONLY profiles on the CURRENT VISIBLE PAGE)
   const selectAll = document.getElementById('chk-select-all');
   selectAll?.addEventListener('change', (e) => {
-    const pageItems = getCurrentPageProfiles();
+    const pageItems = getCurrentPageProfiles().filter(p => p.provider === 'adspower');
     if (e.target.checked) {
       pageItems.forEach(p => selectedProfileIds.add(p.user_id));
     } else {
@@ -1008,6 +1142,153 @@ function initFiltersAndActions() {
       }
     } else {
       showToast('🛑 Đã phát lệnh dừng tiến trình chạy ngầm!', 'info');
+    }
+  });
+}
+
+function setTaothaoRunningState(profileId, isRunning) {
+  const profile = allProfiles.find(p => p.provider === 'taothao' && p.user_id === profileId);
+  if (profile) profile.isRunning = isRunning;
+  renderProfiles();
+}
+
+async function startTaothaoBrowser(profileId) {
+  const btn = document.getElementById(`btn-taothao-toggle-${profileId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ph-bold ph-spinner animate-spin"></i> Mở...';
+  }
+  try {
+    const res = await fetch('/api/taothao/browser/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileId }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Không thể mở profile');
+    setTaothaoRunningState(profileId, true);
+    showToast(
+      data.reused
+        ? `Đã đưa cửa sổ đang làm việc lên trước: ${profileId}`
+        : `Đã mở profile taothaoAIClaw: ${profileId}`,
+      'success'
+    );
+  } catch (err) {
+    showToast(`Mở profile taothaoAIClaw thất bại: ${err.message}`, 'error');
+    renderProfiles();
+  }
+}
+
+async function stopTaothaoBrowser(profileId) {
+  const btn = document.getElementById(`btn-taothao-toggle-${profileId}`);
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<i class="ph-bold ph-spinner animate-spin"></i> Đóng...';
+  }
+  try {
+    const res = await fetch('/api/taothao/browser/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileId }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || 'Không thể đóng profile');
+    setTaothaoRunningState(profileId, false);
+    showToast(`Đã đóng profile taothaoAIClaw: ${profileId}`, 'success');
+  } catch (err) {
+    showToast(`Đóng profile taothaoAIClaw thất bại: ${err.message}`, 'error');
+    renderProfiles();
+  }
+}
+
+function initTaothaoListLauncher() {
+  const modal = document.getElementById('modal-open-taothao-list');
+  const input = document.getElementById('taothao-profile-list-input');
+  const count = document.getElementById('taothao-list-count');
+  const resultBox = document.getElementById('taothao-open-result');
+  const submit = document.getElementById('btn-submit-taothao-list');
+  if (!modal || !input || !submit) return;
+
+  const parseIdentifiers = () => [...new Set(
+    input.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean)
+  )];
+  const updateCount = () => {
+    const total = parseIdentifiers().length;
+    if (count) count.textContent = `${total} dòng hợp lệ`;
+  };
+  const openModal = () => {
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    resultBox?.classList.add('hidden');
+    updateCount();
+    input.focus();
+  };
+  const closeModal = () => {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+  };
+
+  document.getElementById('btn-open-taothao-list')?.addEventListener('click', openModal);
+  document.getElementById('btn-close-taothao-list')?.addEventListener('click', closeModal);
+  document.getElementById('btn-cancel-taothao-list')?.addEventListener('click', closeModal);
+  modal.addEventListener('click', event => {
+    if (event.target === modal) closeModal();
+  });
+  input.addEventListener('input', updateCount);
+
+  submit.addEventListener('click', async () => {
+    const identifiers = parseIdentifiers();
+    if (identifiers.length === 0) {
+      showToast('Hãy dán ít nhất một ID hoặc tên profile taothaoAIClaw.', 'warn');
+      input.focus();
+      return;
+    }
+
+    const concurrencyInput = document.getElementById('taothao-open-concurrency');
+    const concurrency = Math.min(20, Math.max(1, Number(concurrencyInput?.value) || 5));
+    submit.disabled = true;
+    submit.innerHTML = '<i class="ph-bold ph-spinner animate-spin"></i> Đang mở...';
+    resultBox?.classList.add('hidden');
+
+    try {
+      const res = await fetch('/api/taothao/browser/batch-start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifiers, concurrency }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || 'Không thể mở danh sách profile');
+
+      if (resultBox) {
+        const notFound = data.notFound || [];
+        const failed = (data.results || []).filter(item => !item.success);
+        resultBox.innerHTML = `
+          <div class="font-semibold text-emerald-300">Đã xử lý ${data.openedCount}/${data.resolvedCount} profile.</div>
+          <div class="mt-1 text-slate-400">Dùng lại cửa sổ cũ: ${data.reusedCount || 0} · Mở cửa sổ mới: ${data.launchedCount || 0}</div>
+          ${notFound.length ? `<div class="mt-2 text-amber-300">Không tìm thấy (${notFound.length}): ${notFound.map(escapeHtml).join(', ')}</div>` : ''}
+          ${failed.length ? `<div class="mt-2 text-rose-300">Mở thất bại (${failed.length}): ${failed.map(item => escapeHtml(item.name || item.profileId)).join(', ')}</div>` : ''}
+        `;
+        resultBox.classList.remove('hidden');
+      }
+
+      (data.results || []).filter(item => item.success).forEach(item => {
+        const profile = allProfiles.find(p => p.provider === 'taothao' && p.user_id === item.profileId);
+        if (profile) profile.isRunning = true;
+      });
+      renderProfiles();
+      showToast(
+        `Đã xử lý ${data.openedCount} profile: dùng lại ${data.reusedCount || 0}, mở mới ${data.launchedCount || 0}.`,
+        data.failedCount || data.notFound?.length ? 'warn' : 'success'
+      );
+    } catch (err) {
+      showToast(`Mở danh sách taothaoAIClaw thất bại: ${err.message}`, 'error');
+      if (resultBox) {
+        resultBox.textContent = err.message;
+        resultBox.classList.remove('hidden');
+      }
+    } finally {
+      submit.disabled = false;
+      submit.innerHTML = '<i class="ph-bold ph-play"></i> Mở các cửa sổ';
     }
   });
 }
@@ -1401,6 +1682,9 @@ function openProfileDrawer(profileId) {
         <span class="text-[10px] text-slate-500 uppercase font-bold">Tên Profile & ID</span>
         <h4 class="text-sm font-bold text-white mt-0.5">${escapeHtml(profile.name || 'Unnamed')}</h4>
         <p class="font-mono text-slate-400 text-xs mt-0.5 select-all">${profile.user_id}</p>
+        <span class="inline-flex mt-2 px-2 py-0.5 rounded-md text-[10px] font-bold ${profile.provider === 'taothao' ? 'bg-sky-500/10 text-sky-300 border border-sky-500/20' : 'bg-violet-500/10 text-violet-300 border border-violet-500/20'}">
+          ${profile.provider_label || 'AdsPower'}
+        </span>
       </div>
 
       <div class="p-3 rounded-xl bg-surface-950 border border-slate-800 space-y-2">
@@ -1498,11 +1782,25 @@ function initSSE() {
 
   eventSource.addEventListener('workflow_batch_completed', (e) => {
     try {
-      showToast('✅ Batch workflow hoàn thành!', 'success');
+      const data = JSON.parse(e.data);
+      const failedCount = data.failedCount || 0;
+      const toastMsg = failedCount > 0
+        ? `⚠️ Batch hoàn thành: ${failedCount} task(s) thất bại. Nhấn "Retry Failed" để chạy lại.`
+        : '✅ Batch workflow hoàn thành!';
+      showToast(toastMsg, failedCount > 0 ? 'warn' : 'success');
       updateWorkflowEngineBadge('idle');
-      setWorkflowControlState('idle');
+      setWorkflowControlState('idle', failedCount);
       fetchWorkflowStatus();
       stopWorkflowPolling();
+    } catch {}
+  });
+
+  // Báo cáo YouTube đã xuất xong -> hiện thẻ tải file trong tab Workflow Runner
+  eventSource.addEventListener('youtube_report_ready', (e) => {
+    try {
+      const report = JSON.parse(e.data);
+      renderYoutubeReport(report);
+      showToast(`📊 Đã xuất báo cáo YouTube: ${report.videoCount} video / ${report.profileCount} profile.`, 'success');
     } catch {}
   });
 
@@ -1852,6 +2150,374 @@ function renderHealingEvents(events) {
 let workflowSelectedProfiles = new Set();
 let wfSelectionMode = 'checkbox'; // 'checkbox' | 'text'
 
+// Provider profile trình duyệt đang chọn cho workflow: 'adspower' | 'taothao'.
+let wfProvider = 'adspower';
+// Profile taothao đã chuẩn hoá về shape {user_id,name,serial_number} để tái dùng UI hiện có.
+let wfTaothaoProfiles = [];
+let wfTaothaoLoaded = false;
+
+const WF_PROVIDER_LABEL = { adspower: 'AdsPower', taothao: 'taothaoAIClaw' };
+
+function wfProviderLabel() {
+  return WF_PROVIDER_LABEL[wfProvider] || wfProvider;
+}
+
+/** Pool profile của provider đang chọn. */
+function wfProfilePool() {
+  return wfProvider === 'taothao'
+    ? wfTaothaoProfiles
+    : (allProfiles || []).filter(p => p.provider !== 'taothao');
+}
+
+/** Provider không lưu credential trong profile -> người dùng phải dán tài khoản. */
+function wfProviderNeedsAccounts() {
+  return wfProvider === 'taothao';
+}
+
+function wfAccountLines() {
+  const raw = document.getElementById('wf-google-accounts')?.value || '';
+  return raw.split(/\r?\n/).filter(l => l.trim().length > 0);
+}
+
+/** Chỉ lấy cột email để preview. KHÔNG BAO GIỜ hiển thị cột password / 2FA. */
+function wfAccountEmails() {
+  return wfAccountLines().map(l => (l.split(',')[0] || '').trim());
+}
+
+function maskEmailClient(email) {
+  if (!email) return '(thiếu email)';
+  const at = email.indexOf('@');
+  if (at <= 0) return email.length <= 2 ? '***' : `${email.slice(0, 2)}***`;
+  return `${email.slice(0, Math.min(2, at))}***${email.slice(at)}`;
+}
+
+function wfSelectedIdentifiers() {
+  if (wfSelectionMode === 'checkbox') return Array.from(workflowSelectedProfiles);
+  const rawText = document.getElementById('wf-profile-text-input')?.value || '';
+  return rawText
+    .split(/\r?\n/)
+    .map(l => l.trim().replace(/^\t+|\t+$/g, ''))
+    .filter(l => l.length > 0);
+}
+
+function wfFindInPool(identifier) {
+  const lower = identifier.toLowerCase();
+  const serial = identifier.replace(/^#/, '');
+  return wfProfilePool().find(
+    p =>
+      p.user_id === identifier ||
+      p.serial_number === identifier ||
+      p.serial_number === serial ||
+      p.name?.toLowerCase().trim() === lower
+  );
+}
+
+/** Tải danh sách profile taothaoAIClaw (CHỈ ĐỌC) từ Local API qua backend. */
+async function loadTaothaoProfiles(force = false) {
+  if (wfTaothaoLoaded && !force) return;
+  const container = document.getElementById('wf-profile-list');
+  if (container) {
+    container.innerHTML = `<div class="text-xs text-slate-500 text-center py-6">
+      <i class="ph-bold ph-spinner-gap animate-spin block text-2xl mx-auto mb-2"></i>
+      Đang tải profiles từ taothaoAIClaw...</div>`;
+  }
+  try {
+    const res = await fetch('/api/taothao/profiles?fetchAll=true');
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || `HTTP ${res.status}`);
+    wfTaothaoProfiles = (data.list || []).map(p => ({
+      user_id: p.profileId,
+      name: p.name,
+      serial_number: p.stt != null ? String(p.stt) : '',
+      __isRunning: !!p.isRunning,
+    }));
+    wfTaothaoLoaded = true;
+    showToast(`✅ taothaoAIClaw: ${wfTaothaoProfiles.length} profiles`, 'success');
+  } catch (err) {
+    wfTaothaoProfiles = [];
+    wfTaothaoLoaded = false;
+    showToast('❌ Không tải được profiles taothaoAIClaw: ' + err.message, 'error');
+  }
+  renderWorkflowProfileList(document.getElementById('wf-profile-search')?.value?.trim()?.toLowerCase() || '');
+  if (wfSelectionMode === 'text') parseAndValidateTextInput();
+}
+
+/** Đồng bộ UI theo provider đang chọn (hint, khối credential, nhãn not-found). */
+function applyWfProviderUi() {
+  const needsAccounts = wfProviderNeedsAccounts();
+  const hint = document.getElementById('wf-provider-hint');
+  if (hint) {
+    hint.textContent = needsAccounts
+      ? 'taothaoAIClaw Local API — credential do bạn dán ở khung Tài Khoản Google.'
+      : 'Credential lấy tự động từ chính profile AdsPower.';
+  }
+  document.getElementById('wf-google-creds-adspower')?.classList.toggle('hidden', needsAccounts);
+  document.getElementById('wf-google-creds-taothao')?.classList.toggle('hidden', !needsAccounts);
+  const notFoundLabel = document.getElementById('wf-text-notfound-label');
+  if (notFoundLabel) {
+    notFoundLabel.textContent = `⚠️ Các profile KHÔNG TỒN TẠI trong ${wfProviderLabel()} (sẽ báo lỗi và tổng hợp khi chạy):`;
+  }
+  updateWfAccountsUi();
+}
+
+/**
+ * Hiện/ẩn khung tài khoản + kiểm tra số lượng NGAY TRÊN UI trước khi gửi request.
+ * Preview chỉ hiển thị email ĐÃ CHE; password/2FA không bao giờ được render.
+ */
+function updateWfAccountsUi() {
+  const card = document.getElementById('wf-accounts-card');
+  if (!card) return;
+  const preset = document.getElementById('wf-preset-select')?.value || 'facebook_login';
+  const show = wfProviderNeedsAccounts() && preset === 'google_account_login';
+  card.classList.toggle('hidden', !show);
+  if (!show) return;
+
+  const emails = wfAccountEmails();
+  const identifiers = wfSelectedIdentifiers();
+  const accountCount = emails.length;
+  const profileCount = identifiers.length;
+
+  const countEl = document.getElementById('wf-accounts-count');
+  if (countEl) countEl.textContent = `${accountCount} tài khoản`;
+
+  const status = document.getElementById('wf-accounts-status');
+  const preview = document.getElementById('wf-mapping-preview');
+  if (!status || !preview) return;
+
+  const showStatus = (cls, text) => {
+    status.className = `px-3 py-2 rounded-xl border text-xs whitespace-pre-line ${cls}`;
+    status.textContent = text;
+    status.classList.remove('hidden');
+  };
+
+  if (accountCount === 0 || profileCount === 0) {
+    showStatus(
+      'bg-slate-800/40 border-slate-700 text-slate-300',
+      `Profiles: ${profileCount}\nAccounts: ${accountCount}\nCần: hai số này bằng nhau.`
+    );
+    preview.classList.add('hidden');
+    preview.innerHTML = '';
+    return;
+  }
+
+  if (accountCount !== profileCount) {
+    showStatus(
+      'bg-rose-500/10 border-rose-500/30 text-rose-300',
+      `Số lượng profile và tài khoản không khớp.\nProfiles: ${profileCount}\nAccounts: ${accountCount}\nVui lòng kiểm tra lại.`
+    );
+    preview.classList.add('hidden');
+    preview.innerHTML = '';
+    return;
+  }
+
+  showStatus(
+    'bg-emerald-500/10 border-emerald-500/30 text-emerald-300',
+    `Khớp ${profileCount} profile ↔ ${accountCount} tài khoản. Ghép CỐ ĐỊNH theo vị trí như bảng dưới.`
+  );
+
+  preview.innerHTML = identifiers
+    .map((identifier, i) => {
+      const found = wfFindInPool(identifier);
+      const label = found ? found.name || found.user_id : identifier;
+      return `<div class="px-3 py-2 flex items-center gap-3 text-xs">
+        <span class="w-6 shrink-0 text-slate-500 font-mono">${i + 1}</span>
+        <span class="flex-1 min-w-0 truncate ${found ? 'text-slate-200' : 'text-rose-400'}">${escapeHtml(label)}${
+        found ? '' : ' (không tìm thấy)'
+      }</span>
+        <i class="ph-bold ph-arrow-right text-slate-600 shrink-0"></i>
+        <span class="flex-1 min-w-0 truncate font-mono text-brand-300">${escapeHtml(maskEmailClient(emails[i]))}</span>
+      </div>`;
+    })
+    .join('');
+  preview.classList.remove('hidden');
+}
+
+// ─── Báo cáo YouTube (workflow youtube_channel_videos) ──────────────────────
+let youtubeReportFileName = null;
+
+/** Hiện/ẩn thẻ báo cáo. `report` rỗng -> ẩn thẻ. */
+function renderYoutubeReport(report) {
+  const box = document.getElementById('wf-youtube-report');
+  const summary = document.getElementById('wf-youtube-report-summary');
+  if (!box || !summary) return;
+  if (!report || !report.fileName) {
+    youtubeReportFileName = null;
+    box.classList.add('hidden');
+    return;
+  }
+  youtubeReportFileName = report.fileName;
+  const totalViews = (report.summary || []).reduce((sum, row) => sum + (row.totalViews || 0), 0);
+  summary.innerHTML = `Đã xuất <span class="font-mono text-emerald-300">${escapeHtml(report.fileName)}</span> — `
+    + `${report.profileCount} profile, ${report.videoCount} video, tổng ${totalViews.toLocaleString('vi-VN')} view.`;
+  box.classList.remove('hidden');
+}
+
+/** Lấy báo cáo gần nhất (batch có thể đã xong trước khi bạn mở tab). */
+async function fetchYoutubeReport() {
+  try {
+    const res = await fetch('/api/workflow/youtube-report');
+    if (!res.ok) return;
+    const data = await res.json();
+    renderYoutubeReport(data.report);
+  } catch {}
+}
+
+/**
+ * Tải file .xlsx. PHẢI đi qua `fetch` (wrapper tự gắn Bearer token) rồi tạo blob —
+ * mở thẳng href sẽ bị 401 vì thẻ <a> không mang token.
+ */
+async function downloadYoutubeReport() {
+  const btn = document.getElementById('btn-wf-youtube-download');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/workflow/youtube-report/download');
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error || `Không tải được file báo cáo (HTTP ${res.status}).`, 'error');
+      return;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = youtubeReportFileName || 'youtube-videos.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    showToast(`Không tải được file báo cáo: ${err.message}`, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ─── Kho Channel ID theo profile (tab "Kênh YouTube") ───────────────────────
+let youtubeChannelRows = [];
+
+const YT_SOURCE_LABEL = {
+  open_tab: 'tab Studio đang mở',
+  account_fetch: 'link kênh trong trang account',
+  studio_url: 'URL Studio',
+  studio_config: 'cấu hình trang Studio',
+  account_advanced: 'trang cài đặt nâng cao',
+  account_page: 'trang account',
+  cache: 'kho đã lưu',
+};
+
+/** Hiện khối tuỳ chọn YouTube chỉ khi đang chọn preset YouTube; đồng thời cập nhật số bản ghi. */
+function applyWfYoutubeUi() {
+  const box = document.getElementById('wf-youtube-options');
+  const preset = document.getElementById('wf-preset-select')?.value || 'facebook_login';
+  if (box) box.classList.toggle('hidden', preset !== 'youtube_channel_videos');
+  if (preset === 'youtube_channel_videos') loadYoutubeChannels();
+}
+
+function renderYoutubeChannels() {
+  const tbody = document.getElementById('yt-cache-tbody');
+  const badge = document.getElementById('badge-nav-youtube');
+  const countLine = document.getElementById('wf-youtube-cache-count');
+  if (badge) badge.textContent = String(youtubeChannelRows.length);
+  if (countLine) {
+    countLine.textContent = youtubeChannelRows.length
+      ? `Kho Channel ID: ${youtubeChannelRows.length} profile đã lưu`
+      : 'Kho Channel ID: chưa có bản ghi nào';
+  }
+  if (!tbody) return;
+
+  if (youtubeChannelRows.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="7" class="px-3 py-10 text-center text-slate-500">
+      <i class="ph-bold ph-youtube-logo text-3xl block mx-auto mb-2 text-slate-700"></i>
+      Chưa có Channel ID nào được lưu. Chạy workflow "YouTube: Tổng Hợp Video Theo Profile" để tạo kho.
+    </td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = youtubeChannelRows
+    .map((row) => {
+      const title = row.channelTitle || row.channelHandle || row.channelId;
+      const updated = row.updatedAt ? new Date(row.updatedAt).toLocaleString('vi-VN') : '—';
+      const source = YT_SOURCE_LABEL[row.channelSource] || row.channelSource || '—';
+      return `<tr class="hover:bg-surface-950/40">
+        <td class="px-3 py-2.5 font-semibold text-slate-200">${escapeHtml(row.profileName || row.profileId)}
+          <span class="block text-[10px] font-mono text-slate-500">${escapeHtml(row.profileId)}</span></td>
+        <td class="px-3 py-2.5"><span class="px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[10px] font-mono">${escapeHtml(row.provider)}</span></td>
+        <td class="px-3 py-2.5">
+          <a href="${escapeHtml(row.channelUrl)}" target="_blank" rel="noopener" class="text-rose-400 hover:text-rose-300 font-semibold">${escapeHtml(title)}</a>
+          <span class="block text-[10px] font-mono text-slate-500">${escapeHtml(row.channelId)}</span></td>
+        <td class="px-3 py-2.5 text-slate-400">${escapeHtml(source)}</td>
+        <td class="px-3 py-2.5 text-right font-mono text-slate-300">${row.videoCount ?? '—'}</td>
+        <td class="px-3 py-2.5 text-slate-500 text-[11px]">${escapeHtml(updated)}</td>
+        <td class="px-3 py-2.5 text-right">
+          <button type="button" data-yt-forget="${escapeHtml(row.provider)}|${escapeHtml(row.profileId)}"
+            class="px-2 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 text-[10px] font-bold transition">Xoá</button>
+        </td>
+      </tr>`;
+    })
+    .join('');
+}
+
+async function loadYoutubeChannels() {
+  try {
+    const res = await fetch('/api/youtube/channels');
+    if (!res.ok) return;
+    const data = await res.json();
+    youtubeChannelRows = Array.isArray(data.channels) ? data.channels : [];
+    renderYoutubeChannels();
+  } catch (err) {
+    console.error('Load youtube channels error:', err);
+  }
+}
+
+async function forgetYoutubeChannel(provider, profileId) {
+  try {
+    const res = await fetch(`/api/youtube/channels/${encodeURIComponent(provider)}/${encodeURIComponent(profileId)}`, {
+      method: 'DELETE',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      showToast(data.error || `Không xoá được (HTTP ${res.status}).`, 'error');
+      return;
+    }
+    showToast('✅ Đã xoá Channel ID đã lưu — lượt sau sẽ mở trình duyệt đọc lại profile này.', 'success');
+    await loadYoutubeChannels();
+  } catch (err) {
+    showToast(`Không xoá được: ${err.message}`, 'error');
+  }
+}
+
+function initYoutubeChannels() {
+  document.querySelector('.nav-item[data-tab="tab-youtube"]')?.addEventListener('click', loadYoutubeChannels);
+  document.getElementById('btn-yt-cache-reload')?.addEventListener('click', loadYoutubeChannels);
+
+  document.getElementById('btn-yt-cache-clear')?.addEventListener('click', async () => {
+    if (youtubeChannelRows.length === 0) {
+      showToast('Kho đang trống.', 'info');
+      return;
+    }
+    // Xoá toàn bộ là không thể hoàn tác -> phải xác nhận.
+    if (!window.confirm(`Xoá toàn bộ ${youtubeChannelRows.length} Channel ID đã lưu? Lượt chạy sau sẽ phải mở lại từng trình duyệt để đọc.`)) return;
+    try {
+      const res = await fetch('/api/youtube/channels', { method: 'DELETE' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        showToast(data.error || `Không xoá được kho (HTTP ${res.status}).`, 'error');
+        return;
+      }
+      showToast(data.message || 'Đã xoá kho Channel ID.', 'success');
+      await loadYoutubeChannels();
+    } catch (err) {
+      showToast(`Không xoá được kho: ${err.message}`, 'error');
+    }
+  });
+
+  // Nút "Xoá" từng dòng: bảng render lại liên tục -> bắt sự kiện ở tbody.
+  document.getElementById('yt-cache-tbody')?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-yt-forget]');
+    if (!btn) return;
+    const [provider, profileId] = btn.getAttribute('data-yt-forget').split('|');
+    if (provider && profileId) forgetYoutubeChannel(provider, profileId);
+  });
+}
+
 function initWorkflowRunner() {
   // Mode switchers (Checkbox vs Textarea)
   const btnModeCheckbox = document.getElementById('btn-wf-mode-checkbox');
@@ -1885,6 +2551,38 @@ function initWorkflowRunner() {
   btnModeCheckbox?.addEventListener('click', () => setWfMode('checkbox'));
   btnModeText?.addEventListener('click', () => setWfMode('text'));
 
+  // Browser provider switch: AdsPower <-> taothaoAIClaw.
+  // ID profile của 2 backend KHÔNG dùng lẫn nhau -> xoá lựa chọn khi đổi provider.
+  document.getElementById('wf-provider-select')?.addEventListener('change', async (e) => {
+    wfProvider = e.target.value === 'taothao' ? 'taothao' : 'adspower';
+    workflowSelectedProfiles.clear();
+    applyWfProviderUi();
+    if (wfProvider === 'taothao') {
+      await loadTaothaoProfiles();
+    } else {
+      renderWorkflowProfileList(document.getElementById('wf-profile-search')?.value?.trim()?.toLowerCase() || '');
+    }
+    updateWfSelectedCount();
+  });
+
+  // Tải lại danh sách profile của provider đang chọn
+  document.getElementById('btn-wf-reload-profiles')?.addEventListener('click', async () => {
+    if (wfProvider === 'taothao') {
+      await loadTaothaoProfiles(true);
+    } else {
+      await fetchProfiles();
+      renderWorkflowProfileList(document.getElementById('wf-profile-search')?.value?.trim()?.toLowerCase() || '');
+    }
+  });
+
+  // Danh sách tài khoản Google (chỉ dùng cho provider không mang credential)
+  document.getElementById('wf-google-accounts')?.addEventListener('input', updateWfAccountsUi);
+  document.getElementById('btn-wf-clear-accounts')?.addEventListener('click', () => {
+    const ta = document.getElementById('wf-google-accounts');
+    if (ta) ta.value = '';
+    updateWfAccountsUi();
+  });
+
   // Search filter for checkbox mode
   const searchInput = document.getElementById('wf-profile-search');
   if (searchInput) {
@@ -1914,7 +2612,7 @@ function initWorkflowRunner() {
 
   // Select all / deselect all
   document.getElementById('btn-wf-select-all')?.addEventListener('click', () => {
-    allProfiles.forEach(p => workflowSelectedProfiles.add(p.user_id));
+    wfProfilePool().forEach(p => workflowSelectedProfiles.add(p.user_id));
     const searchVal = document.getElementById('wf-profile-search')?.value?.trim()?.toLowerCase() || '';
     renderWorkflowProfileList(searchVal);
   });
@@ -1923,6 +2621,22 @@ function initWorkflowRunner() {
     const searchVal = document.getElementById('wf-profile-search')?.value?.trim()?.toLowerCase() || '';
     renderWorkflowProfileList(searchVal);
   });
+
+  // Toggle các khối phụ thuộc preset: credential Google, tuỳ chọn YouTube
+  document.getElementById('wf-preset-select')?.addEventListener('change', (e) => {
+    const credsBlock = document.getElementById('wf-google-credentials');
+    if (credsBlock) credsBlock.classList.toggle('hidden', e.target.value !== 'google_account_login');
+    applyWfYoutubeUi();
+    updateWfAccountsUi();
+  });
+
+  // Nút tải file Excel + khôi phục thẻ báo cáo của lần chạy gần nhất
+  document.getElementById('btn-wf-youtube-download')?.addEventListener('click', downloadYoutubeReport);
+  fetchYoutubeReport();
+
+  // Tuỳ chọn YouTube + số bản ghi trong kho Channel ID (hiển thị ngay khi mở tab)
+  document.getElementById('btn-wf-youtube-cache')?.addEventListener('click', () => switchTab('tab-youtube'));
+  applyWfYoutubeUi();
 
   // Run Batch Workflow
   document.getElementById('btn-wf-run')?.addEventListener('click', async () => {
@@ -1951,12 +2665,38 @@ function initWorkflowRunner() {
     const workflowName = document.getElementById('wf-preset-select')?.value || 'facebook_login';
     const concurrency = Number(document.getElementById('wf-concurrency')?.value || 5);
 
+    const body = { profileIdentifiers, workflowName, concurrency, provider: wfProvider };
+
+    // Workflow YouTube: tích ô này = bỏ qua kho Channel ID, mở profile đọc lại từ đầu.
+    if (workflowName === 'youtube_channel_videos') {
+      body.refreshChannels = Boolean(document.getElementById('wf-youtube-refresh')?.checked);
+    }
+
+    // Provider không mang credential: bắt buộc dán tài khoản và số lượng phải khớp TRƯỚC khi gọi API.
+    if (wfProviderNeedsAccounts() && workflowName === 'google_account_login') {
+      const rawAccounts = document.getElementById('wf-google-accounts')?.value || '';
+      const accountCount = wfAccountLines().length;
+      if (accountCount === 0) {
+        showToast('Vui lòng dán danh sách tài khoản "gmail,password,2fa" (mỗi dòng một tài khoản).', 'warn');
+        return;
+      }
+      if (accountCount !== profileIdentifiers.length) {
+        showToast(
+          `❌ Số lượng profile và tài khoản không khớp. Profiles: ${profileIdentifiers.length} / Accounts: ${accountCount}`,
+          'error'
+        );
+        updateWfAccountsUi();
+        return;
+      }
+      body.googleAccounts = rawAccounts;
+    }
+
     showToast(`🚀 Đang chuẩn bị và khởi chạy ${profileIdentifiers.length} profiles...`, 'info');
     try {
       const res = await fetch('/api/workflow/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profileIdentifiers, workflowName, concurrency }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.success) {
@@ -1965,7 +2705,7 @@ function initWorkflowRunner() {
         startWorkflowPolling();
 
         if (data.notFoundCount > 0) {
-          showToast(`⚠️ Đã chạy ${data.resolvedCount} profile hợp lệ. Lưu ý có ${data.notFoundCount} profile không tìm thấy trên AdsPower!`, 'warn');
+          showToast(`⚠️ Đã chạy ${data.resolvedCount} profile hợp lệ. Lưu ý có ${data.notFoundCount} profile không tìm thấy trên ${wfProviderLabel()}!`, 'warn');
         } else {
           showToast(`✅ Đã khởi chạy batch: ${data.tasks?.length || profileIdentifiers.length} tasks`, 'success');
         }
@@ -1999,6 +2739,19 @@ function initWorkflowRunner() {
     showToast('❌ Đã hủy batch workflow.', 'error');
   });
 
+  // Retry Failed
+  document.getElementById('btn-wf-retry')?.addEventListener('click', async () => {
+    try {
+      const res = await fetch('/api/workflow/retry-failed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error);
+      setWorkflowControlState('running');
+      showToast(`🔄 ${data.message}`, 'success');
+    } catch (err) {
+      showToast('Lỗi retry: ' + err.message, 'error');
+    }
+  });
+
   // Clear history
   document.getElementById('btn-wf-clear')?.addEventListener('click', async () => {
     try {
@@ -2019,8 +2772,14 @@ function initWorkflowRunner() {
   const wfNavBtn = document.querySelector('.nav-item[data-tab="tab-workflow"]');
   if (wfNavBtn) {
     wfNavBtn.addEventListener('click', () => {
-      renderWorkflowProfileList();
+      applyWfProviderUi();
+      if (wfProvider === 'taothao') loadTaothaoProfiles();
+      else renderWorkflowProfileList();
       fetchWorkflowStatus();
+      // Báo cáo/kho Channel ID của phiên trước: lần fetch lúc khởi động chạy trước khi đăng nhập
+      // nên trả 401 — mở lại tab phải lấy lại, không đợi tới khi có batch mới xong.
+      applyWfYoutubeUi();
+      fetchYoutubeReport();
     });
   }
 }
@@ -2048,6 +2807,7 @@ function parseAndValidateTextInput() {
   if (lines.length === 0) {
     if (summaryBox) summaryBox.classList.add('hidden');
     if (selectedCountEl && wfSelectionMode === 'text') selectedCountEl.textContent = '0 đã nhập';
+    updateWfAccountsUi();
     return;
   }
 
@@ -2058,7 +2818,7 @@ function parseAndValidateTextInput() {
     const cleanLower = line.toLowerCase();
     const serial = line.replace(/^#/, '');
 
-    const found = allProfiles.find(
+    const found = wfProfilePool().find(
       p =>
         p.user_id === line ||
         p.serial_number === line ||
@@ -2105,9 +2865,13 @@ function parseAndValidateTextInput() {
   if (selectedCountEl && wfSelectionMode === 'text') {
     selectedCountEl.textContent = `${lines.length} profile (${matched.length} hợp lệ)`;
   }
+
+  updateWfAccountsUi();
 }
 
 let wfPollInterval = null;
+/** Poll trước đó thấy engine đang chạy -> dùng để nhận biết batch vừa kết thúc. */
+let wfWasRunning = false;
 
 function startWorkflowPolling() {
   stopWorkflowPolling();
@@ -2132,14 +2896,24 @@ async function fetchWorkflowStatus() {
     const res = await fetch('/api/workflow/status');
     if (!res.ok) return false;
     const data = await res.json();
-    updateWorkflowEngineBadge(data.engineState);
+    setWorkflowControlState(data.engineState || 'idle');
     renderWorkflowTasks(data.tasks || []);
     updateWorkflowCounts();
 
     const badge = document.getElementById('badge-nav-workflow');
     if (badge) badge.textContent = data.engineState || 'idle';
 
-    return data.engineState === 'running';
+    const isRunning = data.engineState === 'running';
+    // Batch vừa chạy xong -> lấy metadata báo cáo YouTube qua REST.
+    // KHÔNG dựa vào SSE: stream có thể chưa kết nối (đăng nhập giữa phiên) và
+    // khi đó thẻ tải file .xlsx sẽ không bao giờ hiện.
+    if (wfWasRunning && !isRunning) {
+      fetchYoutubeReport();
+      // Batch YouTube vừa xong -> kho Channel ID đã có thêm bản ghi, cập nhật lại bảng/badge.
+      loadYoutubeChannels();
+    }
+    wfWasRunning = isRunning;
+    return isRunning;
   } catch {
     return false;
   }
@@ -2149,19 +2923,23 @@ function renderWorkflowProfileList(filterQuery = '') {
   const container = document.getElementById('wf-profile-list');
   if (!container) return;
 
-  if (!allProfiles || allProfiles.length === 0) {
-    container.innerHTML = `<div class="text-xs text-slate-500 text-center py-6">Chưa có profiles. Hãy tải danh sách ở tab Profiles trước.</div>`;
+  const pool = wfProfilePool();
+  if (pool.length === 0) {
+    container.innerHTML =
+      wfProvider === 'taothao'
+        ? `<div class="text-xs text-slate-500 text-center py-6">Chưa có profiles taothaoAIClaw. Bấm "Tải lại" để lấy danh sách.</div>`
+        : `<div class="text-xs text-slate-500 text-center py-6">Chưa có profiles. Hãy tải danh sách ở tab Profiles trước.</div>`;
     return;
   }
 
   const filtered = filterQuery
-    ? allProfiles.filter(
+    ? pool.filter(
         p =>
           p.name?.toLowerCase().includes(filterQuery) ||
           p.user_id?.toLowerCase().includes(filterQuery) ||
           String(p.serial_number || '').includes(filterQuery)
       )
-    : allProfiles;
+    : pool;
 
   if (filtered.length === 0) {
     container.innerHTML = `<div class="text-xs text-slate-500 text-center py-6">Không tìm thấy profile khớp với "${escapeHtml(
@@ -2173,7 +2951,7 @@ function renderWorkflowProfileList(filterQuery = '') {
   container.innerHTML = filtered
     .map(p => {
       const isSelected = workflowSelectedProfiles.has(p.user_id);
-      const isActive = activeProfileIds.has(p.user_id);
+      const isActive = wfProvider === 'taothao' ? !!p.__isRunning : activeProfileIds.has(p.user_id);
       return `
     <label class="flex items-center gap-2.5 px-3 py-2 rounded-xl cursor-pointer hover:bg-slate-800/50 transition ${
       isSelected ? 'bg-brand-500/5 border border-brand-500/20' : 'border border-transparent'
@@ -2207,17 +2985,19 @@ function toggleWorkflowProfile(profileId, checked) {
 
 function updateWfSelectedCount() {
   const el = document.getElementById('wf-selected-count');
-  if (!el) return;
-  if (wfSelectionMode === 'checkbox') {
-    el.textContent = `${workflowSelectedProfiles.size} đã chọn`;
-  } else {
-    const rawText = document.getElementById('wf-profile-text-input')?.value || '';
-    const lines = rawText
-      .split(/\r?\n/)
-      .map(l => l.trim().replace(/^\t+|\t+$/g, ''))
-      .filter(l => l.length > 0);
-    el.textContent = `${lines.length} đã nhập`;
+  if (el) {
+    if (wfSelectionMode === 'checkbox') {
+      el.textContent = `${workflowSelectedProfiles.size} đã chọn`;
+    } else {
+      const rawText = document.getElementById('wf-profile-text-input')?.value || '';
+      const lines = rawText
+        .split(/\r?\n/)
+        .map(l => l.trim().replace(/^\t+|\t+$/g, ''))
+        .filter(l => l.length > 0);
+      el.textContent = `${lines.length} đã nhập`;
+    }
   }
+  updateWfAccountsUi();
 }
 
 function renderWorkflowTasks(tasks) {
@@ -2280,14 +3060,42 @@ function getWorkflowTaskRowHTML(task) {
   const stepInfo = task.currentStepName ? `Step ${task.currentStepIndex + 1}/${task.totalSteps}: ${escapeHtml(task.currentStepName)}` : '';
   const errInfo = task.errorMessage ? `<div class="text-rose-400 text-[11px] font-medium mt-1 truncate flex items-center gap-1"><i class="ph-bold ph-warning-circle shrink-0"></i> ${escapeHtml(task.errorMessage)}</div>` : '';
 
+  const loginStateConfig = {
+    SUCCESS:               { color: 'text-emerald-400', label: 'Login: Thành công' },
+    FAILED:                { color: 'text-rose-400', label: 'Login: Thất bại' },
+    TIMEOUT:               { color: 'text-amber-400', label: 'Login: Timeout' },
+    VERIFICATION_REQUIRED: { color: 'text-yellow-400', label: 'Login: Cần xác minh' },
+    NEEDS_HUMAN_REVIEW:    { color: 'text-orange-400', label: 'Login: Cần review thủ công' },
+    QUEUED:                { color: 'text-slate-400', label: 'Login: Trong hàng đợi' },
+    RUNNING:               { color: 'text-brand-300', label: 'Login: Đang chạy' },
+    CREDENTIAL_UNAVAILABLE:  { color: 'text-rose-400', label: 'Login: Thiếu credential AdsPower' },
+    BROWSER_WINDOW_MISMATCH: { color: 'text-orange-400', label: 'Login: Sai cửa sổ trình duyệt' },
+  };
+  const loginCfg = task.loginState ? loginStateConfig[task.loginState] : null;
+  const loginBadge = loginCfg
+    ? `<span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-slate-800 ${loginCfg.color}">${loginCfg.label}</span>`
+    : '';
+
+  // Browser Status (degrade gracefully on older payloads without these fields)
+  let browserBadge = '';
+  if (task.cleanupState === 'CLOSE_FAILED') {
+    browserBadge = `<span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-slate-800 text-rose-400">Browser: Open (close failed)</span>`;
+  } else if (task.browserOpen === true) {
+    browserBadge = `<span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-slate-800 text-amber-400">Browser: Open</span>`;
+  } else if (task.browserOpen === false) {
+    browserBadge = `<span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-slate-800 text-emerald-400">Browser: Closed</span>`;
+  }
+
   return `
     <div class="w-2.5 h-2.5 rounded-full shrink-0 ${cfg.dot}"></div>
     <div class="flex-1 min-w-0">
       <div class="flex items-center gap-2 mb-1 flex-wrap">
         <span class="text-xs font-bold text-slate-200 truncate">${escapeHtml(displayName)}</span>
-        ${task.profileName && task.profileId !== task.profileName ? `<span class="text-[10px] text-slate-500 font-mono">(${escapeHtml(task.profileId)})</span>` : ''}
+        ${task.profileId && task.profileId !== displayName ? `<span class="text-[10px] text-slate-500 font-mono">(${escapeHtml(String(task.profileId))})</span>` : ''}
         <span class="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-slate-800 ${cfg.color}">${cfg.label}</span>
         ${task.status === 'running' ? `<span class="text-[10px] text-slate-500 truncate">${escapeHtml(stepInfo)}</span>` : ''}
+        ${loginBadge}
+        ${browserBadge}
       </div>
       <!-- Progress Bar -->
       <div class="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
@@ -2344,29 +3152,707 @@ function updateWorkflowEngineBadge(state) {
   if (navBadge) navBadge.textContent = state || 'idle';
 }
 
-function setWorkflowControlState(state) {
+function setWorkflowControlState(state, failedCount = 0) {
   updateWorkflowEngineBadge(state);
   const btnRun = document.getElementById('btn-wf-run');
   const btnPause = document.getElementById('btn-wf-pause');
   const btnResume = document.getElementById('btn-wf-resume');
   const btnCancel = document.getElementById('btn-wf-cancel');
+  const btnRetry = document.getElementById('btn-wf-retry');
 
   if (state === 'running') {
     if (btnRun) btnRun.disabled = true;
     if (btnPause) btnPause.disabled = false;
     if (btnResume) btnResume.disabled = true;
     if (btnCancel) btnCancel.disabled = false;
+    if (btnRetry) btnRetry.disabled = true;
   } else if (state === 'paused') {
     if (btnRun) btnRun.disabled = true;
     if (btnPause) btnPause.disabled = true;
     if (btnResume) btnResume.disabled = false;
     if (btnCancel) btnCancel.disabled = false;
+    if (btnRetry) btnRetry.disabled = true;
   } else {
     // idle / cancelled
     if (btnRun) btnRun.disabled = false;
     if (btnPause) btnPause.disabled = true;
     if (btnResume) btnResume.disabled = true;
     if (btnCancel) btnCancel.disabled = true;
+    // Retry chỉ active khi có failed tasks
+    if (btnRetry) btnRetry.disabled = failedCount === 0;
   }
 }
 
+
+// ============================================================
+// PROXY CHECKER MODULE
+// Kiểm tra proxy nào đã được sử dụng trong AdsPower profiles
+// ============================================================
+
+const ProxyCheckerModule = (() => {
+  /** Kết quả lần check gần nhất để dùng cho copy/export */
+  let _lastUnused = [];
+  /** Toàn bộ used proxies để filter */
+  let _lastUsed = [];
+
+  function escHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  /** Đọc proxy list từ textarea, trả về mảng string đã lọc */
+  function readProxyList() {
+    const raw = document.getElementById('proxy-checker-input')?.value || '';
+    return raw
+      .split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length > 0);
+  }
+
+  /** Đọc format proxy đang chọn */
+  function readFormat() {
+    const checked = document.querySelector('input[name="proxy-format"]:checked');
+    return checked ? checked.value : 'auto';
+  }
+
+  /** Gọi API /api/proxy/check */
+  async function runCheck() {
+    const proxies = readProxyList();
+    if (proxies.length === 0) {
+      alert('Vui lòng nhập ít nhất một proxy!');
+      return;
+    }
+
+    const proxyFormat = readFormat();
+    const btnCheck = document.getElementById('btn-proxy-check');
+    const statusEl = document.getElementById('proxy-checker-status');
+    const resultsEl = document.getElementById('proxy-checker-results');
+
+    // Show loading state
+    if (btnCheck) { btnCheck.disabled = true; btnCheck.innerHTML = '<i class="ph-bold ph-spinner-gap animate-spin"></i> Đang quét...'; }
+    if (statusEl) statusEl.classList.remove('hidden');
+    if (resultsEl) resultsEl.classList.add('hidden');
+
+    try {
+      const token = localStorage.getItem('auth_token') || '';
+      const res = await fetch('/api/proxy/check', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ proxies, proxyFormat }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || `HTTP ${res.status}`);
+      }
+
+      renderResults(data);
+    } catch (err) {
+      alert(`Lỗi kiểm tra proxy: ${err.message}`);
+    } finally {
+      if (btnCheck) { btnCheck.disabled = false; btnCheck.innerHTML = '<i class="ph-bold ph-magnifying-glass"></i> <span>Kiểm Tra Proxy</span>'; }
+      if (statusEl) statusEl.classList.add('hidden');
+    }
+  }
+
+  /** Render kết quả vào DOM */
+  function renderResults(data) {
+    const { total, used, unused, totalProfilesScanned } = data;
+    _lastUnused = unused || [];
+
+    // Stats
+    setText('pc-stat-total', total);
+    setText('pc-stat-used', used.length);
+    setText('pc-stat-unused', unused.length);
+    setText('pc-stat-profiles', totalProfilesScanned);
+    setText('pc-badge-used', used.length);
+    setText('pc-badge-unused', unused.length);
+
+    // Save for filtering
+    _lastUsed = used;
+
+    // Used proxies table
+    renderUsedRows(used);
+
+    // Reset search box
+    const searchEl = document.getElementById('pc-used-search');
+    if (searchEl) searchEl.value = '';
+
+    // Unused proxies textarea
+    const unusedTextarea = document.getElementById('pc-unused-textarea');
+    if (unusedTextarea) {
+      unusedTextarea.value = unused.join('\n');
+    }
+
+    // Show results
+    const resultsEl = document.getElementById('proxy-checker-results');
+    if (resultsEl) resultsEl.classList.remove('hidden');
+
+    // Scroll to results
+    resultsEl?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function setText(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  /** Render hàng bảng used proxies từ mảng items */
+  function renderUsedRows(items) {
+    const tbody = document.getElementById('pc-used-tbody');
+    const emptyEl = document.getElementById('pc-used-empty');
+    if (!tbody) return;
+    if (items.length === 0) {
+      tbody.innerHTML = '';
+      if (emptyEl) emptyEl.classList.remove('hidden');
+    } else {
+      if (emptyEl) emptyEl.classList.add('hidden');
+      tbody.innerHTML = items.map(item => {
+        const profileList = item.profiles.map(p =>
+          `<span class="inline-flex items-center gap-1 mr-1 mb-1 px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-slate-300">
+            <span class="font-mono text-slate-500">#${escHtml(p.serial_number || '?')}</span>
+            ${escHtml(p.name || p.user_id)}
+            ${p.group_name ? `<span class="text-slate-600 text-[10px]">(${escHtml(p.group_name)})</span>` : ''}
+          </span>`
+        ).join('');
+        return `<tr class="hover:bg-slate-800/40 transition">
+          <td class="px-4 py-3 font-mono text-rose-300 whitespace-nowrap">${escHtml(item.proxy)}</td>
+          <td class="px-4 py-3">
+            <div class="flex flex-wrap gap-0.5">${profileList}</div>
+          </td>
+        </tr>`;
+      }).join('');
+    }
+  }
+
+  /** Lọc bảng used proxies theo query từ ô tìm kiếm */
+  function filterUsedTable() {
+    const q = (document.getElementById('pc-used-search')?.value || '').toLowerCase().trim();
+    if (!q) {
+      renderUsedRows(_lastUsed);
+      return;
+    }
+    const filtered = _lastUsed.filter(item => {
+      if (item.proxy.toLowerCase().includes(q)) return true;
+      return item.profiles.some(p =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.serial_number || '').toLowerCase().includes(q) ||
+        (p.group_name || '').toLowerCase().includes(q) ||
+        (p.user_id || '').toLowerCase().includes(q)
+      );
+    });
+    renderUsedRows(filtered);
+  }
+
+  /** Copy proxy chưa dùng vào clipboard */
+  async function copyUnused() {
+    if (_lastUnused.length === 0) {
+      alert('Không có proxy chưa dùng để copy!');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(_lastUnused.join('\n'));
+      const btn = document.getElementById('btn-proxy-copy-unused');
+      if (btn) {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<i class="ph-bold ph-check"></i> Đã copy!';
+        setTimeout(() => { btn.innerHTML = orig; }, 2000);
+      }
+    } catch {
+      // Fallback
+      const ta = document.getElementById('pc-unused-textarea');
+      if (ta) { ta.select(); document.execCommand('copy'); }
+    }
+  }
+
+  /** Export proxy chưa dùng thành file .txt */
+  function exportUnused() {
+    if (_lastUnused.length === 0) {
+      alert('Không có proxy chưa dùng để export!');
+      return;
+    }
+    const blob = new Blob([_lastUnused.join('\n')], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    a.download = `proxy-chua-dung-${ts}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  /** Reset toàn bộ UI về trạng thái ban đầu */
+  function resetUI() {
+    const input = document.getElementById('proxy-checker-input');
+    if (input) input.value = '';
+    const results = document.getElementById('proxy-checker-results');
+    if (results) results.classList.add('hidden');
+    _lastUnused = [];
+  }
+
+  /** Khởi tạo event listeners */
+  function init() {
+    document.getElementById('btn-proxy-check')?.addEventListener('click', runCheck);
+    document.getElementById('btn-proxy-reset')?.addEventListener('click', resetUI);
+    document.getElementById('btn-proxy-copy-unused')?.addEventListener('click', copyUnused);
+    document.getElementById('btn-proxy-export-unused')?.addEventListener('click', exportUnused);
+    // Search filter — real-time
+    document.getElementById('pc-used-search')?.addEventListener('input', filterUsedTable);
+  }
+
+  return { init, runCheck, resetUI };
+})();
+
+// Khởi tạo Proxy Checker khi DOM sẵn sàng
+document.addEventListener('DOMContentLoaded', () => {
+  ProxyCheckerModule.init();
+});
+
+// =========================================================================
+// FACEBOOK PAGE INVENTORY ENGINE (FEAT-007 Step 1)
+// =========================================================================
+let currentPageInvJobId = null;
+let pageInvPollTimer = null;
+let currentPageInvResults = { verifiedPages: [], unresolvedItems: [], totalScanned: 0 };
+
+function initPageInventory() {
+  const btnStart = document.getElementById('btn-page-inv-start');
+  const btnStop = document.getElementById('btn-page-inv-stop');
+  const btnExportCsv = document.getElementById('btn-page-inv-export-csv');
+  const btnExportJson = document.getElementById('btn-page-inv-export-json');
+  const searchInput = document.getElementById('page-inv-search');
+  const filterSelect = document.getElementById('page-inv-filter-status');
+  const showUnresolvedChk = document.getElementById('page-inv-show-unresolved');
+
+  if (btnStart) {
+    btnStart.addEventListener('click', startPageInventoryScan);
+  }
+
+  if (btnStop) {
+    btnStop.addEventListener('click', stopPageInventoryScan);
+  }
+
+  if (btnExportCsv) {
+    btnExportCsv.addEventListener('click', exportPageInventoryCSV);
+  }
+
+  if (btnExportJson) {
+    btnExportJson.addEventListener('click', exportPageInventoryJSON);
+  }
+
+  if (searchInput) {
+    searchInput.addEventListener('input', renderPageInventoryResults);
+  }
+
+  if (filterSelect) {
+    filterSelect.addEventListener('change', renderPageInventoryResults);
+  }
+
+  if (showUnresolvedChk) {
+    showUnresolvedChk.addEventListener('change', renderPageInventoryResults);
+  }
+
+  if (allProfiles && allProfiles.length > 0) {
+    populatePageInventoryProfileSelector(allProfiles);
+  }
+}
+
+function populatePageInventoryProfileSelector(profiles) {
+  const select = document.getElementById('page-inv-profile-select');
+  if (!select) return;
+  const currentValue = select.value;
+
+  select.innerHTML = '<option value="">-- Chọn profile để quét Page --</option>';
+  profiles.forEach(p => {
+    const opt = document.createElement('option');
+    opt.value = p.user_id;
+    opt.textContent = `#${p.serial_number || 'N/A'} - ${p.name || 'Unnamed'} (${p.user_id})`;
+    if (p.user_id === currentValue) opt.selected = true;
+    select.appendChild(opt);
+  });
+}
+
+async function startPageInventoryScan() {
+  const selectProfile = document.getElementById('page-inv-profile-select');
+  const inputProfile = document.getElementById('page-inv-profile-input');
+  const typed = (inputProfile?.value || '').trim();
+  const profileId = typed || selectProfile?.value;
+  const maxExpansions = document.getElementById('page-inv-max-expansions')?.value || '100';
+  const timeoutMs = document.getElementById('page-inv-timeout-ms')?.value || '30000';
+  const keepBrowserOpen = document.getElementById('page-inv-keep-open')?.checked !== false;
+  const showUnresolved = document.getElementById('page-inv-show-unresolved')?.checked !== false;
+  const errorAlert = document.getElementById('page-inv-error-alert');
+  const errorText = document.getElementById('page-inv-error-text');
+
+  if (errorAlert) errorAlert.classList.add('hidden');
+
+  if (!profileId) {
+    if (errorAlert && errorText) {
+      errorText.textContent = 'Vui lòng chọn hoặc nhập một AdsPower profile để bắt đầu quét Page.';
+      errorAlert.classList.remove('hidden');
+    }
+    showToast('Vui lòng chọn một AdsPower profile để bắt đầu!', 'warn');
+    return;
+  }
+
+  setPageInventoryControlsState({ running: true });
+
+  const progressPanel = document.getElementById('page-inv-job-progress');
+  if (progressPanel) progressPanel.classList.remove('hidden');
+
+  updatePageInventoryProgress({ percent: 5, stage: 'init', detail: 'Đang gửi yêu cầu khởi chạy tiến trình quét...' });
+
+  try {
+    const res = await fetch('/api/page-inventory/scan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        profileId,
+        maxExpansions: Number(maxExpansions),
+        timeoutMs: Number(timeoutMs),
+        keepBrowserOpen,
+        showUnresolved,
+      }),
+    });
+
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      const errMsg = data.error || `HTTP ${res.status}: Khởi tạo thất bại`;
+      if (errorAlert && errorText) {
+        errorText.textContent = errMsg;
+        errorAlert.classList.remove('hidden');
+      }
+      showToast(`❌ ${errMsg}`, 'error');
+      setPageInventoryControlsState({ running: false });
+      if (progressPanel) progressPanel.classList.add('hidden');
+      return;
+    }
+
+    currentPageInvJobId = data.jobId;
+    showToast(`🚀 Đã bắt đầu tiến trình quét Page (Job: ${currentPageInvJobId})`, 'info');
+
+    if (pageInvPollTimer) clearInterval(pageInvPollTimer);
+    pageInvPollTimer = setInterval(() => pollPageInventoryJob(currentPageInvJobId), 1000);
+
+  } catch (err) {
+    if (errorAlert && errorText) {
+      errorText.textContent = `Lỗi kết nối server: ${err.message}`;
+      errorAlert.classList.remove('hidden');
+    }
+    showToast(`❌ Không thể kết nối server: ${err.message}`, 'error');
+    setPageInventoryControlsState({ running: false });
+    if (progressPanel) progressPanel.classList.add('hidden');
+  }
+}
+
+async function pollPageInventoryJob(jobId) {
+  if (!jobId) return;
+
+  try {
+    const res = await fetch(`/api/page-inventory/jobs/${jobId}`);
+    if (!res.ok) return;
+    const data = await res.json();
+
+    if (!data.success || !data.job) return;
+    const job = data.job;
+
+    if (job.progress) {
+      updatePageInventoryProgress(job.progress);
+    }
+
+    const statusBadge = document.getElementById('page-inv-job-status-badge');
+    if (statusBadge) {
+      statusBadge.textContent = job.status.toUpperCase();
+      statusBadge.className = `mt-1 text-sm font-bold ${
+        job.status === 'running' ? 'text-blue-400 animate-pulse' :
+        job.status === 'completed' ? 'text-emerald-400' :
+        job.status === 'cancelled' ? 'text-amber-400' : 'text-rose-400'
+      }`;
+    }
+
+    if (job.status === 'completed') {
+      if (pageInvPollTimer) clearInterval(pageInvPollTimer);
+      pageInvPollTimer = null;
+      setPageInventoryControlsState({ running: false });
+
+      if (job.result) {
+        currentPageInvResults = job.result;
+        renderPageInventoryResults();
+      }
+
+      showToast(`🎉 Quét hoàn tất! Tìm thấy ${job.result?.verifiedPages?.length || 0} Page xác thực.`, 'success');
+      const progressPanel = document.getElementById('page-inv-job-progress');
+      if (progressPanel) progressPanel.classList.add('hidden');
+
+    } else if (job.status === 'failed') {
+      if (pageInvPollTimer) clearInterval(pageInvPollTimer);
+      pageInvPollTimer = null;
+      setPageInventoryControlsState({ running: false });
+
+      const errorAlert = document.getElementById('page-inv-error-alert');
+      const errorText = document.getElementById('page-inv-error-text');
+      if (errorAlert && errorText) {
+        errorText.textContent = job.error || 'Tiến trình quét bị thất bại.';
+        errorAlert.classList.remove('hidden');
+      }
+      showToast(`❌ Tiến trình quét thất bại: ${job.error}`, 'error');
+      const progressPanel = document.getElementById('page-inv-job-progress');
+      if (progressPanel) progressPanel.classList.add('hidden');
+
+    } else if (job.status === 'cancelled') {
+      if (pageInvPollTimer) clearInterval(pageInvPollTimer);
+      pageInvPollTimer = null;
+      setPageInventoryControlsState({ running: false });
+
+      showToast(`ℹ️ Tiến trình quét đã bị hủy.`, 'info');
+      const progressPanel = document.getElementById('page-inv-job-progress');
+      if (progressPanel) progressPanel.classList.add('hidden');
+    }
+  } catch (err) {
+    console.error('Poll job error:', err);
+  }
+}
+
+async function stopPageInventoryScan() {
+  if (!currentPageInvJobId) return;
+
+  try {
+    const res = await fetch(`/api/page-inventory/jobs/${currentPageInvJobId}/cancel`, { method: 'POST' });
+    const data = await res.json();
+    if (data.success) {
+      showToast('⏹️ Đã gửi lệnh hủy tiến trình quét Page thành công.', 'info');
+    }
+  } catch (err) {
+    showToast(`Lỗi khi dừng job: ${err.message}`, 'error');
+  }
+}
+
+function setPageInventoryControlsState({ running }) {
+  const btnStart = document.getElementById('btn-page-inv-start');
+  const btnStop = document.getElementById('btn-page-inv-stop');
+  const selectProfile = document.getElementById('page-inv-profile-select');
+  const maxExpansions = document.getElementById('page-inv-max-expansions');
+  const timeoutMs = document.getElementById('page-inv-timeout-ms');
+  const keepOpen = document.getElementById('page-inv-keep-open');
+
+  if (btnStart) btnStart.disabled = running;
+  if (btnStop) btnStop.disabled = !running;
+  if (selectProfile) selectProfile.disabled = running;
+  if (maxExpansions) maxExpansions.disabled = running;
+  if (timeoutMs) timeoutMs.disabled = running;
+  if (keepOpen) keepOpen.disabled = running;
+}
+
+function updatePageInventoryProgress(prog) {
+  const bar = document.getElementById('page-inv-progress-bar');
+  const percentLabel = document.getElementById('page-inv-percent-label');
+  const phaseBadge = document.getElementById('page-inv-phase-badge');
+  const stageLabel = document.getElementById('page-inv-stage-label');
+  const detailLabel = document.getElementById('page-inv-detail-label');
+  const checkpointLabel = document.getElementById('page-inv-checkpoint-label');
+  const expansionsLabel = document.getElementById('page-inv-expansions-label');
+
+  const statVerified = document.getElementById('page-inv-stat-verified');
+  const statUnresolved = document.getElementById('page-inv-stat-unresolved');
+  const statTotal = document.getElementById('page-inv-stat-total');
+
+  if (bar) bar.style.width = `${prog.percent || 0}%`;
+  if (percentLabel) percentLabel.textContent = `${prog.percent || 0}%`;
+  if (phaseBadge) phaseBadge.textContent = prog.phase || 'OPEN_SWITCHER';
+  if (stageLabel) stageLabel.textContent = prog.stage || getStageTitle(prog.stage);
+  if (detailLabel) detailLabel.textContent = prog.detail || '';
+
+  if (checkpointLabel) {
+    checkpointLabel.textContent = prog.checkpoint ? `Checkpoint: ${prog.checkpoint.name}` : 'Checkpoint: Chưa có';
+  }
+
+  const clicks = prog.seeMoreClicks !== undefined ? prog.seeMoreClicks : (prog.expansionsCount || 0);
+  if (expansionsLabel) expansionsLabel.textContent = `Bấm "Xem thêm": ${clicks}`;
+
+  if (statVerified && prog.verifiedCount !== undefined) statVerified.textContent = String(prog.verifiedCount);
+  if (statTotal && prog.discoveredCount !== undefined) statTotal.textContent = String(prog.discoveredCount);
+}
+
+function getStageTitle(stage) {
+  if (!stage) return 'Đang xử lý...';
+  if (stage.includes('—')) return stage;
+  switch (stage) {
+    case 'init': return 'OPEN_SWITCHER — Đang khởi tạo...';
+    case 'browser_connect': return 'OPEN_SWITCHER — Mở trình duyệt AdsPower...';
+    case 'cdp_attach': return 'OPEN_SWITCHER — Kết nối Playwright CDP...';
+    case 'check_login': return 'OPEN_SWITCHER — Kiểm tra phiên Facebook...';
+    case 'open_profile_switcher': return 'OPEN_SWITCHER — Mở menu tài khoản...';
+    case 'expanding_profiles': return 'EXPAND — Đang tải thêm danh sách...';
+    case 'extracting_dom': return 'CAPTURE — Phân tích dữ liệu & URL...';
+    case 'completed': return 'COMPLETE — Hoàn tất quét Page!';
+    case 'cancelled': return 'FAILED — Đã hủy!';
+    default: return stage;
+  }
+}
+
+function renderPageInventoryResults() {
+  const tbody = document.getElementById('page-inv-tbody');
+  const statVerified = document.getElementById('page-inv-stat-verified');
+  const statUnresolved = document.getElementById('page-inv-stat-unresolved');
+  const statTotal = document.getElementById('page-inv-stat-total');
+
+  const search = (document.getElementById('page-inv-search')?.value || '').toLowerCase().trim();
+  const filterStatus = document.getElementById('page-inv-filter-status')?.value || 'all';
+  const showUnresolved = document.getElementById('page-inv-show-unresolved')?.checked !== false;
+
+  const verified = currentPageInvResults.verifiedPages || [];
+  const unresolved = currentPageInvResults.unresolvedItems || [];
+
+  if (statVerified) statVerified.textContent = verified.length;
+  if (statUnresolved) statUnresolved.textContent = unresolved.length;
+  if (statTotal) statTotal.textContent = verified.length + unresolved.length;
+
+  let displayItems = [];
+
+  if (filterStatus === 'all' || filterStatus === 'verified') {
+    displayItems.push(...verified);
+  }
+
+  if ((filterStatus === 'all' || filterStatus === 'unresolved') && showUnresolved) {
+    displayItems.push(...unresolved);
+  }
+
+  if (search) {
+    displayItems = displayItems.filter(item => {
+      return (
+        item.pageName.toLowerCase().includes(search) ||
+        (item.pageUrl && item.pageUrl.toLowerCase().includes(search)) ||
+        (item.pageId && item.pageId.toLowerCase().includes(search)) ||
+        item.evidenceSource.toLowerCase().includes(search)
+      );
+    });
+  }
+
+  if (displayItems.length === 0) {
+    tbody.innerHTML = `
+      <tr>
+        <td colspan="6" class="px-5 py-10 text-center text-slate-500 font-sans">
+          <div class="flex flex-col items-center justify-center space-y-2">
+            <i class="ph-duotone ph-magnifying-glass text-3xl text-slate-600"></i>
+            <p>Không tìm thấy kết quả Page nào phù hợp với bộ lọc hiện tại.</p>
+          </div>
+        </td>
+      </tr>
+    `;
+    return;
+  }
+
+  tbody.innerHTML = displayItems.map((item, idx) => {
+    const isVerified = item.verified && item.pageUrl;
+    const evidenceBadgeClass =
+      item.evidenceSource === 'graphql' ? 'bg-purple-500/10 text-purple-300 border-purple-500/30' :
+      item.evidenceSource === 'dom' ? 'bg-blue-500/10 text-blue-300 border-blue-500/30' :
+      'bg-amber-500/10 text-amber-300 border-amber-500/30';
+
+    const evidenceLabel =
+      item.evidenceSource === 'graphql' ? 'GraphQL' :
+      item.evidenceSource === 'dom' ? 'DOM Link' : 'DOM (Chưa rõ URL)';
+
+    return `
+      <tr class="hover:bg-surface-850/60 transition ${!isVerified ? 'bg-amber-950/10' : ''}">
+        <td class="px-4 py-3 text-center font-mono text-slate-500">${idx + 1}</td>
+        <td class="px-4 py-3 font-semibold text-white">${escapeHtml(item.pageName)}</td>
+        <td class="px-4 py-3">
+          ${
+            isVerified
+              ? `<div class="flex items-center space-x-1.5 font-mono text-xs text-blue-400">
+                   <a href="${escapeHtml(item.pageUrl)}" target="_blank" class="hover:underline truncate max-w-md">${escapeHtml(item.pageUrl)}</a>
+                   <button onclick="copyToClipboard('${escapeHtml(item.pageUrl)}', this)" class="hover:text-white p-0.5 text-slate-400" title="Copy URL">
+                     <i class="ph ph-copy"></i>
+                   </button>
+                 </div>`
+              : `<span class="text-amber-400/90 font-mono italic text-[11px]">Chưa xác thực URL (No URL Evidence)</span>`
+          }
+        </td>
+        <td class="px-4 py-3 font-mono text-slate-300">
+          ${item.pageId ? escapeHtml(item.pageId) : '<span class="text-slate-600">N/A</span>'}
+        </td>
+        <td class="px-4 py-3">
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-mono border ${evidenceBadgeClass}">
+            ${evidenceLabel}
+          </span>
+        </td>
+        <td class="px-4 py-3 text-center">
+          ${
+            isVerified
+              ? `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                   Verified
+                 </span>`
+              : `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                   Unresolved
+                 </span>`
+          }
+        </td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function exportPageInventoryCSV() {
+  const verified = currentPageInvResults.verifiedPages || [];
+  const unresolved = currentPageInvResults.unresolvedItems || [];
+
+  if (verified.length === 0 && unresolved.length === 0) {
+    showToast('Chưa có dữ liệu để xuất file CSV!', 'warn');
+    return;
+  }
+
+  let csvContent = 'data:text/csv;charset=utf-8,';
+
+  csvContent += '=== VERIFIED FACEBOOK PAGES ===\n';
+  csvContent += 'STT,Page Name,Exact Page URL,Page ID,Evidence Source,Status\n';
+  verified.forEach((item, i) => {
+    const name = `"${(item.pageName || '').replace(/"/g, '""')}"`;
+    const url = `"${(item.pageUrl || '').replace(/"/g, '""')}"`;
+    const id = `"${(item.pageId || '').replace(/"/g, '""')}"`;
+    csvContent += `${i + 1},${name},${url},${id},${item.evidenceSource},Verified\n`;
+  });
+
+  csvContent += '\n=== UNRESOLVED ITEMS (MISSING EXACT URL EVIDENCE) ===\n';
+  csvContent += 'STT,Page Name,Exact Page URL,Page ID,Evidence Source,Status\n';
+  unresolved.forEach((item, i) => {
+    const name = `"${(item.pageName || '').replace(/"/g, '""')}"`;
+    csvContent += `${i + 1},${name},N/A,N/A,${item.evidenceSource},Unresolved\n`;
+  });
+
+  const encodedUri = encodeURI(csvContent);
+  const link = document.createElement('a');
+  link.setAttribute('href', encodedUri);
+  link.setAttribute('download', `facebook_pages_inventory_${Date.now()}.csv`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showToast('📄 Đã xuất file CSV (đã phân tách Verified & Unresolved) thành công.', 'success');
+}
+
+function exportPageInventoryJSON() {
+  const data = {
+    scannedAt: new Date().toISOString(),
+    totalScanned: currentPageInvResults.totalScanned || 0,
+    verifiedCount: currentPageInvResults.verifiedPages?.length || 0,
+    unresolvedCount: currentPageInvResults.unresolvedItems?.length || 0,
+    verifiedPages: currentPageInvResults.verifiedPages || [],
+    unresolvedItems: currentPageInvResults.unresolvedItems || [],
+  };
+
+  const jsonStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(data, null, 2));
+  const link = document.createElement('a');
+  link.setAttribute('href', jsonStr);
+  link.setAttribute('download', `facebook_pages_inventory_${Date.now()}.json`);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  showToast('📄 Đã xuất file JSON thành công.', 'success');
+}

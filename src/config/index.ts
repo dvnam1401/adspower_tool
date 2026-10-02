@@ -11,6 +11,11 @@ export interface AppConfig {
     apiKey?: string;
     defaultTimeoutMs: number;
   };
+  /** taothaoAIClaw (GoAnidetectAI) Local API — provider profile thứ hai. */
+  taothao: {
+    apiUrl: string;
+    defaultTimeoutMs: number;
+  };
   llm: {
     provider: string;
     model: string;
@@ -28,6 +33,10 @@ export interface AppConfig {
   };
   automation: {
     closeSuccessBrowsers: boolean;
+  };
+  youtube: {
+    /** API Key YouTube Data API v3 (chỉ đọc dữ liệu công khai). KHÔNG log, KHÔNG broadcast SSE. */
+    apiKey?: string;
   };
   windowLayout: {
     enabled: boolean;
@@ -76,6 +85,10 @@ const initialConfig: AppConfig = {
     apiKey: process.env.ADSPOWER_API_KEY || undefined,
     defaultTimeoutMs: Number(process.env.ADSPOWER_TIMEOUT_MS) || 30000,
   },
+  taothao: {
+    apiUrl: (process.env.TAOTHAO_API_URL || 'http://127.0.0.1:19995').replace(/\/+$/, ''),
+    defaultTimeoutMs: Number(process.env.TAOTHAO_TIMEOUT_MS) || 30000,
+  },
   llm: {
     provider: process.env.LLM_PROVIDER || '9router',
     model: process.env.LLM_MODEL || 'gemini-2.5-flash',
@@ -93,6 +106,9 @@ const initialConfig: AppConfig = {
   },
   automation: {
     closeSuccessBrowsers: process.env.CLOSE_SUCCESS_BROWSERS !== 'false',
+  },
+  youtube: {
+    apiKey: process.env.YOUTUBE_API_KEY || undefined,
   },
   windowLayout: {
     enabled: true,
@@ -124,6 +140,12 @@ if (fs.existsSync(configFile)) {
     if (savedData.adspower?.apiUrl) {
       initialConfig.adspower.apiUrl = savedData.adspower.apiUrl;
     }
+    if (savedData.taothao?.apiUrl) {
+      initialConfig.taothao.apiUrl = String(savedData.taothao.apiUrl).replace(/\/+$/, '');
+    }
+    if (savedData.taothao?.defaultTimeoutMs) {
+      initialConfig.taothao.defaultTimeoutMs = Number(savedData.taothao.defaultTimeoutMs);
+    }
     if (savedData.llm) {
       if (savedData.llm.provider) initialConfig.llm.provider = savedData.llm.provider;
       if (savedData.llm.model) initialConfig.llm.model = savedData.llm.model;
@@ -139,6 +161,11 @@ if (fs.existsSync(configFile)) {
     if (savedData.automation) {
       if (savedData.automation.closeSuccessBrowsers !== undefined) {
         initialConfig.automation.closeSuccessBrowsers = Boolean(savedData.automation.closeSuccessBrowsers);
+      }
+    }
+    if (savedData.youtube) {
+      if (savedData.youtube.apiKey !== undefined) {
+        initialConfig.youtube.apiKey = String(savedData.youtube.apiKey);
       }
     }
     if (savedData.windowLayout) {
@@ -177,6 +204,15 @@ export function updateSystemConfig(partial: Partial<AppConfig>): AppConfig {
     }
   }
 
+  if (partial.taothao) {
+    if (partial.taothao.apiUrl) {
+      config.taothao.apiUrl = partial.taothao.apiUrl.replace(/\/+$/, '');
+    }
+    if (partial.taothao.defaultTimeoutMs !== undefined) {
+      config.taothao.defaultTimeoutMs = Number(partial.taothao.defaultTimeoutMs);
+    }
+  }
+
   if (partial.llm) {
     if (partial.llm.provider !== undefined) config.llm.provider = partial.llm.provider;
     if (partial.llm.model !== undefined) config.llm.model = partial.llm.model;
@@ -194,6 +230,12 @@ export function updateSystemConfig(partial: Partial<AppConfig>): AppConfig {
   if (partial.automation) {
     if (partial.automation.closeSuccessBrowsers !== undefined) {
       config.automation.closeSuccessBrowsers = Boolean(partial.automation.closeSuccessBrowsers);
+    }
+  }
+
+  if (partial.youtube) {
+    if (partial.youtube.apiKey !== undefined) {
+      config.youtube.apiKey = String(partial.youtube.apiKey);
     }
   }
 

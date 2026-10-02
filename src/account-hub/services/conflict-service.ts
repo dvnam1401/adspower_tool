@@ -39,6 +39,21 @@ export const INBOUND_FORBIDDEN = new Set([
   'hotmailPasswordEnc',
 ]);
 
+/**
+ * Per-column inbound conflict policy (`field_mappings.conflict_policy`).
+ * `ask` (the default) never overwrites silently — it raises a conflict row.
+ */
+export type InboundConflictPolicy = 'ask' | 'sheet_wins' | 'db_wins';
+
+export interface InboundRowApplyResult {
+  /** Fields written to the warehouse account. */
+  applied: string[];
+  /** Fields that raised a pending conflict for a human to resolve. */
+  conflicted: string[];
+  /** Fields deliberately not considered (forbidden, not whitelisted, empty, db_wins). */
+  ignored: string[];
+}
+
 export class ConflictService {
   constructor(
     private db:          Database.Database,
@@ -92,6 +107,82 @@ export class ConflictService {
 
     logger.warn(`[AccountHub][Conflict] Conflict detected on account ${data.accountId}, field "${data.fieldName}"`);
     return this.listConflicts().find(c => c.id === id)!;
+  }
+
+  /** A pending conflict already parked for this account + field, if any. */
+  private findPending(accountId: string, fieldName: string): Conflict | undefined {
+    return this.listConflicts('pending')
+      .find(c => c.accountId === accountId && c.fieldName === fieldName);
+  }
+
+  /**
+   * Apply one inbound sheet row onto an existing warehouse account (spec §7.2).
+   *
+   * Only whitelisted columns are considered; secret columns are refused outright
+   * and never appear in a conflict row or a log line. An empty sheet cell never
+   * blanks warehouse data. `ask` parks a conflict instead of overwriting.
+   */
+  applyInboundRow(opts: {
+    accountId: string;
+    sourceId:  string;
+    rowIndex:  number;
+    /** System field -> value read from the sheet. */
+    values:    Record<string, string>;
+    /** System field -> that column's conflict policy. Missing entries default to `ask`. */
+    policyByField?: Record<string, string>;
+    actor?:    string;
+  }): InboundRowApplyResult {
+    const result: InboundRowApplyResult = { applied: [], conflicted: [], ignored: [] };
+
+    const account = this.accountRepo.findById(opts.accountId);
+    if (!account) return result;
+
+    // Snapshot of the row is applied field by field; each write re-reads the
+    // account so `version` stays the value the optimistic lock expects.
+    let current = account;
+
+    for (const [field, rawValue] of Object.entries(opts.values)) {
+      if (INBOUND_FORBIDDEN.has(field) || !INBOUND_WHITELIST.has(field)) {
+        result.ignored.push(field);
+        continue;
+      }
+
+      const sheetValue = rawValue.trim();
+      if (!sheetValue) { result.ignored.push(field); continue; }
+
+      const dbValue = String((current as unknown as Record<string, unknown>)[field] ?? '');
+      if (dbValue === sheetValue) continue;
+
+      const policy = (opts.policyByField?.[field] ?? 'ask') as InboundConflictPolicy;
+
+      if (policy === 'db_wins') { result.ignored.push(field); continue; }
+
+      if (policy === 'sheet_wins') {
+        this.accountRepo.update(current.id, {
+          [field]: sheetValue,
+          version: current.version,
+          updatedBy: opts.actor ?? 'system:sheet-poll',
+        } as never);
+        current = this.accountRepo.findById(current.id) ?? current;
+        result.applied.push(field);
+        continue;
+      }
+
+      // policy === 'ask' — park it once; a second poll must not pile up rows.
+      if (!this.findPending(current.id, field)) {
+        this.createConflict({
+          accountId: current.id,
+          sourceId:  opts.sourceId,
+          fieldName: field,
+          dbValue,
+          sheetValue,
+          rowIndex:  opts.rowIndex,
+        });
+      }
+      result.conflicted.push(field);
+    }
+
+    return result;
   }
 
   /** Resolve conflict — accept DB value ('use_db') or Sheet value ('use_sheet') */

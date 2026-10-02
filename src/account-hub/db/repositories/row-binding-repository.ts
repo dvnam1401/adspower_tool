@@ -63,6 +63,11 @@ export class RowBindingRepository {
       Record<string, unknown>[]).map(r => this.map(r));
   }
 
+  listBySource(sourceId: string): RowBinding[] {
+    return (this.db.prepare('SELECT * FROM sheet_row_bindings WHERE source_id = ?').all(sourceId) as
+      Record<string, unknown>[]).map((r) => this.map(r));
+  }
+
   findBySourceRow(sourceId: string, tabId: string | null, rowIndex: number): RowBinding | null {
     const r = this.db.prepare(
       'SELECT * FROM sheet_row_bindings WHERE source_id = ? AND row_index = ? AND (tab_id = ? OR (tab_id IS NULL AND ? IS NULL))',

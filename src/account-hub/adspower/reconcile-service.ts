@@ -14,6 +14,7 @@ import type { AdspowerAdapter } from './adapter.js';
 import type { AccountRepository } from '../db/repositories/account-repository.js';
 import type { SyncJobRepository } from '../db/repositories/sync-job-repository.js';
 import type { AuditLogRepository } from '../db/repositories/audit-log-repository.js';
+import type { NotificationService } from '../services/notification-service.js';
 import { normalizeName } from '../domain/utils.js';
 import { accountHubConfig } from '../config.js';
 import { logger } from '../../utils/logger.js';
@@ -25,6 +26,7 @@ export interface ReconcileResult {
   markedMissing:         number;
   markedDeleted:         number;
   conflicts:             number;
+  dieStillExists:        number;
 }
 
 export class AdspowerReconcileService {
@@ -36,6 +38,7 @@ export class AdspowerReconcileService {
     private accountRepo: AccountRepository,
     private syncJobRepo: SyncJobRepository,
     private auditRepo:   AuditLogRepository,
+    private notifications?: NotificationService,
   ) {}
 
   /** Run full reconciliation between AdsPower and local database */
@@ -46,7 +49,12 @@ export class AdspowerReconcileService {
     });
     this.syncJobRepo.updateStatus(job.id, 'running', { startedAt: new Date().toISOString() });
 
-    let boundNew = 0, updatedLastSeen = 0, markedMissing = 0, markedDeleted = 0, conflicts = 0;
+    let boundNew = 0, markedMissing = 0, markedDeleted = 0, conflicts = 0;
+    let dieStillExists = 0;
+    // Bound accounts confirmed present on AdsPower in this run (spec §4.1 last_seen).
+    const seenBoundUserIds: string[] = [];
+    // adspowerUserId -> profileName for DIE accounts still present on AdsPower this run.
+    const aliveDie = new Map<string, string>();
 
     try {
       const adsProfiles = await this.adapter.listAllProfiles();
@@ -111,9 +119,17 @@ export class AdspowerReconcileService {
           if (needsUpdate) {
             this.accountRepo.update(account.id, updates);
           }
-          updatedLastSeen++;
+          seenBoundUserIds.push(p.userId);
+
+          // spec §4.1: DIE account whose AdsPower profile still exists → notify.
+          if (account.accountStatus === 'DIE') {
+            aliveDie.set(p.userId, account.profileName);
+          }
         }
       }
+
+      // spec §4.1: stamp last_seen for every bound profile AdsPower confirmed.
+      const updatedLastSeen = this.accountRepo.touchLastSeenAdspower(seenBoundUserIds, now);
 
       // 4. Check for accounts that were previously bound to AdsPower but not seen in this run
       const paginated = this.accountRepo.list({ limit: 500 });
@@ -152,6 +168,27 @@ export class AdspowerReconcileService {
         }
       }
 
+      // spec §4.1: emit DIE-still-alive notifications and auto-close cleared ones.
+      if (this.notifications) {
+        for (const [userId, profileName] of aliveDie) {
+          dieStillExists++;
+          this.notifications.emit({
+            type: 'DIE_ADSPOWER_STILL_EXISTS',
+            title: `DIE profile still on AdsPower: ${profileName}`,
+            detail: `Account "${profileName}" is DIE but its AdsPower profile (#${userId}) still exists. Delete it on AdsPower to clear this notice.`,
+            adspowerUserId: userId,
+            dedupeKey: `die-alive:${userId}`,
+          });
+        }
+        for (const n of this.notifications.list('OPEN')) {
+          if (n.type !== 'DIE_ADSPOWER_STILL_EXISTS' || !n.dedupeKey) continue;
+          const uid = n.dedupeKey.startsWith('die-alive:') ? n.dedupeKey.slice('die-alive:'.length) : '';
+          if (uid && !aliveDie.has(uid)) {
+            this.notifications.resolveByDedupe(n.dedupeKey, 'system:reconcile');
+          }
+        }
+      }
+
       this.syncJobRepo.updateStatus(job.id, 'done', { finishedAt: new Date().toISOString() });
       return {
         totalAdsPowerProfiles: adsProfiles.length,
@@ -160,12 +197,50 @@ export class AdspowerReconcileService {
         markedMissing,
         markedDeleted,
         conflicts,
+        dieStillExists,
       };
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.syncJobRepo.updateStatus(job.id, 'failed', { errorMessage: msg, finishedAt: new Date().toISOString() });
       throw err;
     }
+  }
+
+  /**
+   * Event-driven counterpart of the periodic sweep (spec §4.1): called the moment
+   * an account transitions to/away from DIE so the operator sees the warning
+   * without waiting for the next sweep. A single-profile AdsPower lookup.
+   *
+   * Returns true when the DIE-but-still-alive condition holds after the check.
+   */
+  async checkDieAlive(accountId: string): Promise<boolean> {
+    if (!this.notifications) return false;
+    const account = this.accountRepo.findById(accountId);
+    if (!account?.adspowerUserId) return false;
+
+    const dedupeKey = `die-alive:${account.adspowerUserId}`;
+
+    if (account.accountStatus !== 'DIE') {
+      // No longer DIE → the condition cleared; close any standing warning.
+      this.notifications.resolveByDedupe(dedupeKey, 'system:die_event');
+      return false;
+    }
+
+    const profile = await this.adapter.findByUserId(account.adspowerUserId);
+    if (!profile) {
+      this.notifications.resolveByDedupe(dedupeKey, 'system:die_event');
+      return false;
+    }
+
+    this.accountRepo.touchLastSeenAdspower([account.adspowerUserId], new Date().toISOString());
+    this.notifications.emit({
+      type: 'DIE_ADSPOWER_STILL_EXISTS',
+      title: `DIE profile still on AdsPower: ${account.profileName}`,
+      detail: `Account "${account.profileName}" is DIE but its AdsPower profile (#${account.adspowerUserId}) still exists. Delete it on AdsPower to clear this notice.`,
+      adspowerUserId: account.adspowerUserId,
+      dedupeKey,
+    });
+    return true;
   }
 
   /** Start background scheduler (if enabled) */

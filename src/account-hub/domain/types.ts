@@ -29,6 +29,24 @@ export type AdspowerStatus =
   | 'MISSING'
   | 'SYNC_ERROR';
 
+/** Result of matching a BC channel against the Reup source (spec §4). */
+export type ChannelMatchStatus = 'PENDING' | 'AMBIGUOUS' | 'MATCHED';
+
+export type NotificationType =
+  | 'DIE_ADSPOWER_STILL_EXISTS'
+  | 'DUPLICATE_PROFILE'
+  | 'DUPLICATE_ID'
+  | 'DUPLICATE_HOTMAIL'
+  | 'DUPLICATE_CHANNEL'
+  /** Missing/faulty proxy — the only hard block in the warehouse (spec §5). */
+  | 'PROXY_BLOCKED'
+  /** Inbound Sheets poll could not read a tab (creds/quota/permission) — spec §7.2. */
+  | 'SHEET_POLL_FAILED';
+export type NotificationStatus = 'OPEN' | 'RESOLVED' | 'DISMISSED';
+
+/** How a sheet source encodes the DIE state via cell background colour (spec §0.3, §4). */
+export type DieReadMode = 'none' | 'full_row' | 'cell_range';
+
 // ---------------------------------------------------------------------------
 // Core domain models
 // ---------------------------------------------------------------------------
@@ -63,6 +81,16 @@ export interface Account {
   createdBy?: string | null;
   updatedBy?: string | null;
   archivedAt?: string | null;
+  lockedBy?: string | null;
+  lockedAt?: string | null;
+  channelMatchStatus?: ChannelMatchStatus | null;
+  duplicateProfile: boolean;
+  duplicateId: boolean;
+  duplicateHotmail: boolean;
+  /** JSON snapshot of original Sheet cell colors before DIE write-back (spec §4). */
+  colorBackupJson?: string | null;
+  /** Reup channel URL matched for a BC row (spec §4). */
+  channelLink?: string | null;
 }
 
 /** Safe public projection — secrets redacted */
@@ -96,6 +124,7 @@ export interface CreateAccountDto {
   cookie?: string;
   token?: string;
   youtubeChannelUrl?: string;
+  channelLink?: string;
   accountStatus?: AccountStatus;
   assignedTo?: string;
   createdBy?: string;
@@ -105,6 +134,13 @@ export interface UpdateAccountDto extends Partial<CreateAccountDto> {
   accountStatus?: AccountStatus;
   adspowerStatus?: AdspowerStatus;
   updatedBy?: string;
+  lockedBy?: string | null;
+  lockedAt?: string | null;
+  channelMatchStatus?: ChannelMatchStatus | null;
+  duplicateProfile?: boolean;
+  duplicateId?: boolean;
+  duplicateHotmail?: boolean;
+  colorBackupJson?: string | null;
   /** Must match current version for optimistic locking */
   version: number;
 }
@@ -142,7 +178,7 @@ export interface CustomFieldValue {
 // ---------------------------------------------------------------------------
 
 export type SyncJobStatus = 'pending' | 'running' | 'partial' | 'done' | 'failed' | 'cancelled';
-export type SyncJobType = 'sheet_outbound' | 'sheet_inbound' | 'adspower_reconcile' | 'bulk_import' | 'bulk_login';
+export type SyncJobType = 'sheet_outbound' | 'sheet_inbound' | 'adspower_reconcile' | 'bulk_import' | 'bulk_login' | 'die_writeback';
 
 export interface SyncJob {
   id: string;
@@ -196,6 +232,24 @@ export interface Conflict {
   resolvedAt?: string | null;
   resolution?: string | null;
   createdAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Notification
+// ---------------------------------------------------------------------------
+
+export interface Notification {
+  id: string;
+  type: NotificationType;
+  status: NotificationStatus;
+  accountId?: string | null;
+  adspowerUserId?: string | null;
+  title: string;
+  detail?: string | null;
+  dedupeKey?: string | null;
+  createdAt: string;
+  resolvedAt?: string | null;
+  resolvedBy?: string | null;
 }
 
 // ---------------------------------------------------------------------------

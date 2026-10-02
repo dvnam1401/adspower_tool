@@ -365,3 +365,62 @@ body {
 }
 
 .hidden { display: none !important; }
+
+/* ---- Sheet mapping modal ---- */
+.ah-modal-box--lg { width: min(1000px, 96vw); max-height: 90vh; overflow: auto; }
+.map-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.map-row label { font-size: 12px; color: var(--ah-text-muted); }
+.map-preview-wrap { overflow: auto; max-height: 220px; margin-bottom: 16px; }
+.map-preview th, .map-preview td {
+  font-size: 11px;
+  padding: 4px 8px;
+  border: 1px solid var(--ah-border);
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.map-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 720px) { .map-cols { grid-template-columns: 1fr; } }
+.map-panel h4 { margin: 0 0 10px; font-size: 13px; color: var(--ah-text); }
+.map-form { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
+.map-check { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ah-text-muted); }
+.map-table th, .map-table td { font-size: 12px; padding: 6px 8px; max-width: none; }
+.map-table tr.map-attention { background: rgba(220,80,80,0.12); }
+.map-empty { text-align: center; color: var(--ah-text-muted); font-style: italic; }
+
+/* ---- Notifications ---- */
+.ah-notif-badge {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 6px;
+  padding: 0 5px;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  border-radius: 9px;
+  background: var(--ah-danger);
+  color: #fff;
+}
+.ah-notif-list { display: flex; flex-direction: column; gap: 10px; }
+.ah-notif-empty { text-align: center; color: var(--ah-text-muted); font-style: italic; padding: 20px 0; }
+.ah-notif-item {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+  padding: 12px;
+  border: 1px solid var(--ah-border);
+  border-radius: 8px;
+  border-left: 3px solid var(--ah-warn);
+}
+.ah-notif-title  { font-size: 13px; font-weight: 600; color: var(--ah-text); }
+.ah-notif-detail { font-size: 12px; color: var(--ah-text-muted); margin-top: 3px; }
+.ah-notif-meta   { font-size: 11px; color: var(--ah-text-muted); margin-top: 4px; }
+.ah-notif-actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }

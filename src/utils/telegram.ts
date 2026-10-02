@@ -65,14 +65,27 @@ async function generateAISummary(summary: BatchRunSummary): Promise<string> {
   const recaptcha: string[] = [];
   const unknownError: string[] = [];
   const success: string[] = [];
+  // Google Account Login — nhóm riêng theo loginState (chỉ có dữ liệu khi batch là google_account_login).
+  const verificationRequired: string[] = [];
+  const needsHumanReview: string[] = [];
+  const timeout: string[] = [];
 
   summary.results.forEach(r => {
     const id = r.profileName ? `${r.profileName} (${r.identifier})` : r.identifier;
     const errText = (r.error || r.result?.message || '').toLowerCase();
     const statusStr = String(r.result?.status || '');
 
-    if (statusStr === 'logged_in' || statusStr === 'already_logged_in' || statusStr === 'two_factor_completed') {
+    if (statusStr === 'logged_in' || statusStr === 'already_logged_in') {
       success.push(id);
+    } else if (statusStr === 'verification_required') {
+      verificationRequired.push(id);
+    } else if (statusStr === 'needs_human_review') {
+      needsHumanReview.push(id);
+    } else if (statusStr === 'timeout') {
+      timeout.push(id);
+    } else if (statusStr === 'two_factor_in_progress') {
+      // 2FA còn dang dở KHÔNG phải thành công -> xếp vào nhóm cần kiểm tra.
+      unknownError.push(`${id}: Luồng 2FA chưa hoàn tất xác nhận đăng nhập.`);
     } else if (errText.includes('password') || errText.includes('mật khẩu') || errText.includes('incorrect') || errText.includes('wrong')) {
       wrongPassword.push(id);
     } else if (statusStr === 'checkpoint_human_verification' || errText.includes('checkpoint') || errText.includes('xác minh') || errText.includes('2fa')) {
@@ -93,7 +106,18 @@ async function generateAISummary(summary: BatchRunSummary): Promise<string> {
     checkpointList: checkpoint,
     recaptchaList: recaptcha,
     unknownErrorList: unknownError,
+    verificationRequiredList: verificationRequired,
+    needsHumanReviewList: needsHumanReview,
+    timeoutList: timeout,
+    loginStateCounts: summary.loginStateCounts,
   };
+
+  // Chỉ thêm mục Google khi batch có loginState (không ảnh hưởng báo cáo Facebook).
+  const googleSection = summary.loginStateCounts
+    ? `\n- [Google] Cần xác minh - con người (${verificationRequired.length}): ${verificationRequired.join(', ') || 'Không có'}`
+      + `\n- [Google] Cần review thủ công (${needsHumanReview.length}): ${needsHumanReview.join(', ') || 'Không có'}`
+      + `\n- [Google] Quá thời gian/timeout (${timeout.length}): ${timeout.join(', ') || 'Không có'}`
+    : '';
 
   const prompt = `Bạn là trợ lý AI quản lý tự động hóa AdsPower. Hãy đọc dữ liệu kết quả chạy tự động hóa hàng loạt dưới đây và viết một bản BÁO CÁO TỔNG HỢP GỬI TELEGRAM ngắn gọn, chuyên nghiệp, súc tích bằng tiếng Việt.
 
@@ -104,7 +128,7 @@ DỮ LIỆU ĐỢT CHẠY:
 - Tài khoản/Mật khẩu không đúng (${rawDataForAI.wrongPasswordList.length}): ${rawDataForAI.wrongPasswordList.join(', ') || 'Không có'}
 - Tài khoản bị Checkpoint / 2FA (${rawDataForAI.checkpointList.length}): ${rawDataForAI.checkpointList.join(', ') || 'Không có'}
 - Vướng ReCaptcha (${rawDataForAI.recaptchaList.length}): ${rawDataForAI.recaptchaList.join(', ') || 'Không có'}
-- Lỗi chưa xác định / Lỗi khác (${rawDataForAI.unknownErrorList.length}): ${rawDataForAI.unknownErrorList.join('; ') || 'Không có'}
+- Lỗi chưa xác định / Lỗi khác (${rawDataForAI.unknownErrorList.length}): ${rawDataForAI.unknownErrorList.join('; ') || 'Không có'}${googleSection}
 
 YÊU CẦU ĐỊNH DẠNG:
 - Dùng icon sinh động (📊, ✅, ⚠️, 🔒, 🤖, ❌).
@@ -162,6 +186,15 @@ YÊU CẦU ĐỊNH DẠNG:
   if (unknownError.length > 0) {
     fallback += `⚠️ *Lỗi chưa xác định (${unknownError.length}):*\n${unknownError.join('\n')}\n\n`;
   }
+  if (verificationRequired.length > 0) {
+    fallback += `🔐 *Cần xác minh - con người (${verificationRequired.length}):*\n${verificationRequired.join('\n')}\n\n`;
+  }
+  if (needsHumanReview.length > 0) {
+    fallback += `🧑 *Cần review thủ công (${needsHumanReview.length}):*\n${needsHumanReview.join('\n')}\n\n`;
+  }
+  if (timeout.length > 0) {
+    fallback += `⏱️ *Quá thời gian/timeout (${timeout.length}):*\n${timeout.join('\n')}\n\n`;
+  }
 
   return fallback;
 }
@@ -189,6 +222,56 @@ export async function synthesizeBatchReportAndNotify(summary: BatchRunSummary): 
 }
 
 /**
+ * Rút gọn một URL: bỏ query (?...) và hash (#...) — cũng loại bỏ blob nhạy cảm như encryptedcontext.
+ * Shorten a single URL: drop query & hash entirely.
+ */
+export function shortenUrl(u: string): string {
+  const trimmed = (u || '').trim();
+  try {
+    const p = new URL(trimmed);
+    let pathname = p.pathname;
+    if (pathname.length > 60) {
+      pathname = pathname.slice(0, 60) + '…';
+    }
+    return p.origin + pathname;
+  } catch {
+    // Không phải URL hợp lệ — trả về nguyên văn, cắt bớt nếu quá dài.
+    if (trimmed.length > 80) {
+      return trimmed.slice(0, 80) + '…';
+    }
+    return trimmed;
+  }
+}
+
+/**
+ * Rút gọn mọi URL nhúng trong đoạn văn bản.
+ * Shorten every URL embedded inside a text blob.
+ */
+export function shortenUrlsInText(text: string): string {
+  if (!text) return '';
+  return text.replace(/https?:\/\/\S+/g, (match) => shortenUrl(match));
+}
+
+/**
+ * Dựng nội dung thông báo Telegram cho kết quả của một profile (thuần, không side-effect).
+ * Build the Telegram message body for a single profile result (pure).
+ */
+export function buildSingleProfileMessage(result: any): string {
+  const icon = result.success ? '✅' : (result.status === 'checkpoint_human_verification' || result.status === 'checkpoint_detected') ? '🛡️' : result.status === 'recapcha_detected' ? '🧩' : '❌';
+  const header = result.success ? '*BÁO CÁO ĐĂNG NHẬP THÀNH CÔNG*' : '*BÁO CÁO CẦN XỬ LÝ / THẤT BẠI*';
+
+  let msg = `${icon} ${header}\n\n`;
+  msg += `👤 *Profile:* ${result.profileName || result.profileId}\n`;
+  msg += `📌 *Trạng thái:* \`${(result.status || '').toUpperCase()}\`\n`;
+  msg += `💬 *Chi tiết:* ${shortenUrlsInText(result.message)}\n`;
+  if (result.currentUrl) {
+    msg += `🌐 *URL:* ${shortenUrl(result.currentUrl)}\n`;
+  }
+  msg += `⏰ *Thời gian:* ${new Date().toLocaleTimeString('vi-VN')}`;
+  return msg;
+}
+
+/**
  * Send real-time Telegram notification for a single profile login result
  */
 export async function notifySingleProfileResult(result: any): Promise<void> {
@@ -197,20 +280,6 @@ export async function notifySingleProfileResult(result: any): Promise<void> {
     return;
   }
 
-  const icon = result.success ? '✅' : (result.status === 'checkpoint_human_verification' || result.status === 'checkpoint_detected') ? '🛡️' : result.status === 'recapcha_detected' ? '🧩' : '❌';
-  const header = result.success ? '*BÁO CÁO ĐĂNG NHẬP THÀNH CÔNG*' : '*BÁO CÁO CẦN XỬ LÝ / THẤT BẠI*';
-
-  let msg = `${icon} ${header}\n\n`;
-  msg += `👤 *Profile:* ${result.profileName || result.profileId}\n`;
-  msg += `📌 *Trạng thái:* \`${(result.status || '').toUpperCase()}\`\n`;
-  msg += `💬 *Chi tiết:* ${result.message}\n`;
-  if (result.currentUrl) {
-    msg += `🌐 *URL:* ${result.currentUrl}\n`;
-  }
-  if (result.twoFactorCodeUsed) {
-    msg += `🔑 *Mã 2FA đã dùng:* \`${result.twoFactorCodeUsed}\`\n`;
-  }
-  msg += `⏰ *Thời gian:* ${new Date().toLocaleTimeString('vi-VN')}`;
-
+  const msg = buildSingleProfileMessage(result);
   await sendTelegramMessage(telegramConfig.botToken, telegramConfig.chatId, msg);
 }

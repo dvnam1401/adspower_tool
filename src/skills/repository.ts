@@ -5,6 +5,10 @@ import { logger } from '../utils/logger.js';
 import { config } from '../config/index.js';
 
 export class SkillRepository {
+  // Ngưỡng canary DUY NHẤT cho toàn hệ thống (trước đây bị lệch: orchestrator 5 vs ai-analyzer 3).
+  // Số lần thành công cần thiết để thăng hạng candidate/testing -> verified.
+  public static readonly PROMOTE_THRESHOLD = 3;
+
   private filePath: string;
   private skills: Map<string, Skill> = new Map();
 
@@ -168,9 +172,17 @@ export class SkillRepository {
     skill.successCount += 1;
     skill.lastVerifiedAt = new Date().toISOString();
 
-    if (skill.status === 'testing' && skill.successCount >= 5) {
+    const threshold = SkillRepository.PROMOTE_THRESHOLD;
+
+    // Vòng đời canary hợp nhất: candidate & testing đều có thể lên verified.
+    // - candidate/testing đạt đủ ngưỡng -> verified
+    // - candidate mới có 1 lần thành công (chưa đủ ngưỡng) -> vào giai đoạn testing
+    if ((skill.status === 'testing' || skill.status === 'candidate') && skill.successCount >= threshold) {
       skill.status = 'verified';
-      logger.info(`🎉 Skill [${skill.skillId}] đã được tự động thăng hạng lên VERIFIED sau 5 lần thành công!`);
+      logger.info(`🎉 Skill [${skill.skillId}] đã được tự động thăng hạng lên VERIFIED sau ${skill.successCount}/${threshold} lần thành công!`);
+    } else if (skill.status === 'candidate') {
+      skill.status = 'testing';
+      logger.info(`🧪 Skill [${skill.skillId}] chuyển từ candidate -> TESTING (${skill.successCount}/${threshold} lần thành công, đang canary).`);
     }
 
     this.save();

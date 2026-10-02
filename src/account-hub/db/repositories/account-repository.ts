@@ -3,8 +3,8 @@
  *
  * All DB access for the `accounts` table.
  * Optimistic locking via `version` column.
- * Secrets are stored encrypted (enc suffix); this layer just passes through
- * the encrypted bytes — encryption is handled in the service layer.
+ * Secrets are stored encrypted (enc suffix). This layer is the single write
+ * chokepoint: create()/update() encrypt secret fields via encryptSecret().
  */
 
 import type Database from 'better-sqlite3';
@@ -17,8 +17,26 @@ import type {
   PaginatedResult,
   AccountStatus,
   AdspowerStatus,
+  ChannelMatchStatus,
 } from '../../domain/types.js';
 import { normalizeName, generateId } from '../../domain/utils.js';
+import { encryptSecret } from '../../crypto.js';
+
+/** UpdateAccountDto keys whose values must be encrypted before storage. */
+const SECRET_UPDATE_KEYS: Record<string, true> = {
+  password: true,
+  twoFactorSecret: true,
+  hotmailPassword: true,
+  cookie: true,
+  token: true,
+};
+
+/** UpdateAccountDto keys backed by INTEGER(0/1) columns — coerce booleans. */
+const BOOL_UPDATE_KEYS: Record<string, true> = {
+  duplicateProfile: true,
+  duplicateId: true,
+  duplicateHotmail: true,
+};
 
 // ---------------------------------------------------------------------------
 // Row → domain mappers
@@ -54,6 +72,14 @@ function rowToAccount(row: Record<string, unknown>): Account {
     createdBy:                row.created_by as string | null,
     updatedBy:                row.updated_by as string | null,
     archivedAt:               row.archived_at as string | null,
+    lockedBy:                 row.locked_by as string | null,
+    lockedAt:                 row.locked_at as string | null,
+    channelMatchStatus:       row.channel_match_status as ChannelMatchStatus | null,
+    duplicateProfile:         Boolean(row.duplicate_profile),
+    duplicateId:              Boolean(row.duplicate_id),
+    duplicateHotmail:         Boolean(row.duplicate_hotmail),
+    colorBackupJson:          row.color_backup_json as string | null,
+    channelLink:              row.channel_link as string | null,
   };
 }
 
@@ -88,18 +114,18 @@ export class AccountRepository {
     this.db.prepare(`
       INSERT INTO accounts (
         id, profile_name, normalized_profile_name,
-        adspower_user_id, adspower_group_id, linked_content,
+        adspower_user_id, adspower_serial_number, adspower_group_id, linked_content,
         login_id, password_enc, two_factor_secret_enc,
         hotmail, hotmail_password_enc, recovery_mail,
-        cookie_enc, token_enc, youtube_channel_url,
+        cookie_enc, token_enc, youtube_channel_url, channel_link,
         account_status, adspower_status, assigned_to,
         created_at, updated_at, created_by, updated_by, version
       ) VALUES (
         @id, @profileName, @normalizedProfileName,
-        @adspowerUserId, @adspowerGroupId, @linkedContent,
+        @adspowerUserId, @adspowerSerialNumber, @adspowerGroupId, @linkedContent,
         @loginId, @passwordEnc, @twoFactorSecretEnc,
         @hotmail, @hotmailPasswordEnc, @recoveryMail,
-        @cookieEnc, @tokenEnc, @youtubeChannelUrl,
+        @cookieEnc, @tokenEnc, @youtubeChannelUrl, @channelLink,
         @accountStatus, 'NOT_IMPORTED', @assignedTo,
         @now, @now, @createdBy, @createdBy, 1
       )
@@ -108,17 +134,19 @@ export class AccountRepository {
       profileName:            dto.profileName,
       normalizedProfileName:  normalized,
       adspowerUserId:         dto.adspowerUserId ?? null,
+      adspowerSerialNumber:   dto.adspowerSerialNumber ?? null,
       adspowerGroupId:        dto.adspowerGroupId ?? null,
       linkedContent:          dto.linkedContent ?? null,
       loginId:                dto.loginId ?? null,
-      passwordEnc:            dto.password ?? null,       // encryption done in service
-      twoFactorSecretEnc:     dto.twoFactorSecret ?? null,
+      passwordEnc:            encryptSecret(dto.password),
+      twoFactorSecretEnc:     encryptSecret(dto.twoFactorSecret),
       hotmail:                dto.hotmail ?? null,
-      hotmailPasswordEnc:     dto.hotmailPassword ?? null,
+      hotmailPasswordEnc:     encryptSecret(dto.hotmailPassword),
       recoveryMail:           dto.recoveryMail ?? null,
-      cookieEnc:              dto.cookie ?? null,
-      tokenEnc:               dto.token ?? null,
+      cookieEnc:              encryptSecret(dto.cookie),
+      tokenEnc:               encryptSecret(dto.token),
       youtubeChannelUrl:      dto.youtubeChannelUrl ?? null,
+      channelLink:            dto.channelLink ?? null,
       accountStatus:          dto.accountStatus ?? 'LIVE',
       assignedTo:             dto.assignedTo ?? null,
       createdBy:              dto.createdBy ?? null,
@@ -248,6 +276,14 @@ export class AccountRepository {
       accountStatus:     'account_status',
       adspowerStatus:    'adspower_status',
       assignedTo:        'assigned_to',
+      lockedBy:            'locked_by',
+      lockedAt:            'locked_at',
+      channelMatchStatus:  'channel_match_status',
+      duplicateProfile:    'duplicate_profile',
+      duplicateId:         'duplicate_id',
+      duplicateHotmail:    'duplicate_hotmail',
+      colorBackupJson:     'color_backup_json',
+      channelLink:         'channel_link',
     };
 
     const dtoAny = dto as unknown as Record<string, unknown>;
@@ -255,7 +291,13 @@ export class AccountRepository {
       const dtoValue = dtoAny[dtoKey];
       if (dtoValue !== undefined) {
         updates.push(`${col} = @${dtoKey}`);
-        params[dtoKey] = dtoValue;
+        if (SECRET_UPDATE_KEYS[dtoKey]) {
+          params[dtoKey] = encryptSecret(dtoValue as string | null);
+        } else if (BOOL_UPDATE_KEYS[dtoKey]) {
+          params[dtoKey] = dtoValue ? 1 : 0;
+        } else {
+          params[dtoKey] = dtoValue;
+        }
         // Keep normalized name in sync
         if (dtoKey === 'profileName') {
           updates.push('normalized_profile_name = @normalized');
@@ -285,5 +327,35 @@ export class AccountRepository {
          WHERE id = @id`,
       )
       .run({ id, now, by: by ?? null });
+  }
+
+  /**
+   * Persist (or clear) the DIE colour-backup snapshot for a row without bumping
+   * the optimistic-lock version — this is internal write-back bookkeeping, not a
+   * user edit (spec §4). Passing null clears the backup after a successful undo.
+   */
+  setColorBackup(id: string, json: string | null): void {
+    const now = new Date().toISOString();
+    this.db
+      .prepare('UPDATE accounts SET color_backup_json = @json, updated_at = @now WHERE id = @id')
+      .run({ id, json, now });
+  }
+
+  /**
+   * Record that AdsPower still reported these profiles as existing (spec §4.1).
+   * Telemetry-only: it must NOT bump `version`, otherwise every reconcile sweep
+   * would invalidate in-flight optimistic locks held by the UI.
+   */
+  touchLastSeenAdspower(adspowerUserIds: string[], at: string): number {
+    if (adspowerUserIds.length === 0) return 0;
+    const stmt = this.db.prepare(
+      'UPDATE accounts SET last_seen_adspower_at = @at WHERE adspower_user_id = @uid',
+    );
+    let touched = 0;
+    const run = this.db.transaction((ids: string[]) => {
+      for (const uid of ids) touched += stmt.run({ uid, at }).changes;
+    });
+    run(adspowerUserIds);
+    return touched;
   }
 }

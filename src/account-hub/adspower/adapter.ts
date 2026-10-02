@@ -7,6 +7,8 @@
 
 import { adsPowerClient } from '../../adspower/client.js';
 import { logger } from '../../utils/logger.js';
+import { readProxyConfig } from '../../utils/proxy.js';
+import type { AdsPowerProxyConfig } from '../../types/index.js';
 
 export interface AdspowerProfileSummary {
   userId:          string;
@@ -14,6 +16,8 @@ export interface AdspowerProfileSummary {
   groupId:         string;
   serialNumber:    string;
   lastOpenedTabs?: string[];
+  /** Raw proxy block as reported by AdsPower — used by the proxy gate (spec §5). */
+  proxyConfig?:    AdsPowerProxyConfig;
 }
 
 export class AdspowerAdapter {
@@ -40,6 +44,7 @@ export class AdspowerAdapter {
             groupId:         p.group_id || '',
             serialNumber:    p.serial_number || '',
             lastOpenedTabs:  p.last_opened_tabs,
+            proxyConfig:     readProxyConfig(p),
           });
         }
 
@@ -65,6 +70,7 @@ export class AdspowerAdapter {
         name: p.name || '',
         groupId: p.group_id || '',
         serialNumber: p.serial_number || '',
+        proxyConfig: readProxyConfig(p),
       };
     } catch {
       return null;

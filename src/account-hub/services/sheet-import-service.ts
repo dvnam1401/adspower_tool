@@ -13,11 +13,12 @@
 import crypto from 'node:crypto';
 import type { GoogleSheetsClient, SheetRow } from '../google-sheets/client.js';
 import type { AccountRepository } from '../db/repositories/account-repository.js';
-import type { SheetSourceRepository, FieldMapping } from '../db/repositories/sheet-source-repository.js';
+import type { SheetSourceRepository, FieldMapping, SheetSource } from '../db/repositories/sheet-source-repository.js';
 import type { RowBindingRepository } from '../db/repositories/row-binding-repository.js';
 import type { AuditLogRepository } from '../db/repositories/audit-log-repository.js';
 import { normalizeName, generateId } from '../domain/utils.js';
-import type { Account } from '../domain/types.js';
+import type { Account, CreateAccountDto, DieReadMode } from '../domain/types.js';
+import { rowIsDie, parseColumnSpec } from '../domain/die-color.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,6 +32,8 @@ export interface ImportPreviewItem {
   matchedId?:    string;
   conflictNames?: string[];
   issues:        string[];
+  /** DIE detected from the row's cell background colour (spec §0.3). */
+  die?: boolean;
   rowData:       Record<string, string>;
 }
 
@@ -88,6 +91,9 @@ export class SheetImportService {
     const rows      = await this.sheetsClient.readRows(
       source.spreadsheetId, tabMeta.title, source.firstDataRow, undefined, schema,
     );
+
+    // DIE detection from cell background colours (spec §0.3, §4).
+    const dieByRow = await this.readDieFlags(source, tabMeta.title);
 
     // Build column index lookup from mappings
     const fieldCol = new Map<string, number>();
@@ -163,6 +169,8 @@ export class SheetImportService {
         issues, rowData: this.buildRowData(row, mappings),
       });
     }
+    for (const it of items) it.die = dieByRow.get(it.rowIndex) ?? false;
+
 
     return {
       sourceId, tabId,
@@ -189,11 +197,7 @@ export class SheetImportService {
       let accountId: string;
 
       if (item.status === 'new') {
-        const acc = this.accountRepo.create({
-          profileName: item.profileName,
-          loginId:     item.rowData.loginId || undefined,
-          createdBy:   actor,
-        });
+        const acc = this.accountRepo.create(this.buildCreateDto(item, actor));
         accountId = acc.id;
         created++;
 
@@ -208,6 +212,17 @@ export class SheetImportService {
         });
       } else {
         accountId = item.matchedId!;
+        // DIE read from the sheet propagates to the matched warehouse account.
+        if (item.die) {
+          const existing = this.accountRepo.findById(accountId);
+          if (existing && existing.accountStatus !== 'DIE') {
+            this.accountRepo.update(accountId, {
+              accountStatus: 'DIE',
+              version: existing.version,
+              updatedBy: actor ?? 'system:sheet-import',
+            });
+          }
+        }
       }
 
       this.bindingRepo.upsert(accountId, preview.sourceId, preview.tabId, item.rowIndex);
@@ -225,5 +240,54 @@ export class SheetImportService {
       }
     });
     return result;
+  }
+
+  /** Read DIE flags for each data row from the tab's cell background colours. */
+  private async readDieFlags(
+    source: SheetSource,
+    tabTitle: string,
+  ): Promise<Map<number, boolean>> {
+    const map = new Map<number, boolean>();
+    const mode = (source.dieReadMode ?? 'none') as DieReadMode;
+    if (mode === 'none') return map;
+
+    const colorRows = await this.sheetsClient.readRowColors(
+      source.spreadsheetId, tabTitle, source.firstDataRow,
+    );
+    const cols = mode === 'cell_range' ? parseColumnSpec(source.dieColorColumns) : [];
+    for (const { rowIndex, colors } of colorRows) {
+      const relevant =
+        mode === 'cell_range' && cols.length ? cols.map((c) => colors[c] ?? null) : colors;
+      map.set(rowIndex, rowIsDie(relevant, mode));
+    }
+    return map;
+  }
+
+  /** Map a preview row's mapped fields to a CreateAccountDto (all mapped fields). */
+  private buildCreateDto(item: ImportPreviewItem, actor?: string): CreateAccountDto {
+    const rd = item.rowData;
+    const pick = (k: string): string | undefined => {
+      const v = rd[k];
+      return v && v.trim() ? v : undefined;
+    };
+    return {
+      profileName:          item.profileName,
+      adspowerUserId:       pick('adspowerUserId'),
+      adspowerSerialNumber: pick('adspowerSerialNumber'),
+      adspowerGroupId:      pick('adspowerGroupId'),
+      linkedContent:        pick('linkedContent'),
+      loginId:              pick('loginId'),
+      password:             pick('password'),
+      twoFactorSecret:      pick('twoFactorSecret'),
+      hotmail:              pick('hotmail'),
+      hotmailPassword:      pick('hotmailPassword'),
+      recoveryMail:         pick('recoveryMail'),
+      cookie:               pick('cookie'),
+      token:                pick('token'),
+      youtubeChannelUrl:    pick('youtubeChannelUrl'),
+      channelLink:          pick('channelLink'),
+      accountStatus:        item.die ? 'DIE' : undefined,
+      createdBy:            actor,
+    };
   }
 }

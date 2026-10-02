@@ -2,6 +2,8 @@
  * Core Type Definitions for AdsPower Hybrid Agentic Automation
  */
 
+import type { GoogleLoginState } from '../automation/google-login.types.js';
+
 // ==========================================
 // 1. AdsPower API Types
 // ==========================================
@@ -49,6 +51,22 @@ export interface AdsPowerBrowserConnectionData {
   webdriver: string;
 }
 
+/**
+ * Proxy block returned by AdsPower Local API. Verified against a live
+ * `/api/v1/user/list` response: `proxy_soft` is always present; a profile with
+ * no proxy carries ONLY `proxy_soft: 'no_proxy'` (host/port/type absent).
+ */
+export interface AdsPowerProxyConfig {
+  proxy_soft?: string;
+  proxy_type?: string;
+  proxy_host?: string;
+  proxy_port?: string | number;
+  proxy_user?: string;
+  proxy_password?: string;
+  proxy_url?: string;
+  [key: string]: any;
+}
+
 export interface AdsPowerProfileInfo {
   user_id: string;
   serial_number?: string;
@@ -64,14 +82,10 @@ export interface AdsPowerProfileInfo {
   ip?: string;
   country?: string;
   created_time?: number | string;
-  proxy_config?: {
-    proxy_type?: string;
-    proxy_host?: string;
-    proxy_port?: string | number;
-    proxy_user?: string;
-    proxy_password?: string;
-    [key: string]: any;
-  };
+  /** Legacy/aliased shape kept for callers that already read it. */
+  proxy_config?: AdsPowerProxyConfig;
+  /** Actual field name used by AdsPower Local API v1 `/api/v1/user/list`. */
+  user_proxy_config?: AdsPowerProxyConfig;
   fingerprint_config?: Record<string, any>;
   [key: string]: any;
 }
@@ -113,7 +127,8 @@ export type SelectorType =
   | 'placeholder'
   | 'role'
   | 'id'
-  | 'test-id';
+  | 'test-id'
+  | 'data-testid';
 
 export interface SelectorItem {
   type: SelectorType;
@@ -156,7 +171,13 @@ export type DOMActionType =
   | 'extract_attribute'
   | 'navigate'
   | 'scroll'
-  | 'screenshot';
+  | 'screenshot'
+  | 'google_login'
+  | 'facebook_login'
+  // Đọc Channel ID của kênh đang đăng nhập trong profile (không đăng nhập, không click).
+  | 'youtube_channel_collect'
+  // Gọi YouTube Data API v3 để lấy toàn bộ video + lượt xem của Channel ID vừa đọc.
+  | 'youtube_videos_fetch';
 
 export interface DOMAction {
   actionType: DOMActionType;
@@ -232,11 +253,21 @@ export interface WorkflowStep {
   };
 }
 
+/**
+ * Backend cung cấp profile trình duyệt. `adspower` là mặc định lịch sử;
+ * `taothao` = taothaoAIClaw (GoAnidetectAI) Local API.
+ * Khai báo tại đây (không phải trong `src/providers/`) để `WorkflowTask` không
+ * phải import ngược vào layer provider.
+ */
+export type BrowserProviderId = 'adspower' | 'taothao';
+
 export interface WorkflowTask {
   taskId: string;
   profileId: string;
   profileName?: string;
   identifier?: string;
+  /** Backend của profile này. Thiếu = 'adspower' (tương thích ngược). */
+  provider?: BrowserProviderId;
   workflowName: string;
   steps: WorkflowStep[];
   currentStepIndex: number;
@@ -245,6 +276,10 @@ export interface WorkflowTask {
   maxRetries: number;
   resultData?: Record<string, any>;
   errorMessage?: string;
+  /** Cleanup outcome after a task reaches a terminal state (Phase 12). */
+  cleanupState?: 'CLOSED' | 'CLOSE_FAILED' | 'KEPT_OPEN';
+  /** Whether the AdsPower browser window is still open after the task settled. */
+  browserOpen?: boolean;
   startedAt?: string;
   finishedAt?: string;
 }
@@ -315,6 +350,15 @@ export interface WorkflowTaskProgress {
   taskId: string;
   profileId: string;
   profileName?: string;
+  /** Backend của profile (UI hiển thị). Thiếu = 'adspower'. */
+  provider?: BrowserProviderId;
+  /** Thứ tự gốc người dùng nhập — kết quả PHẢI được hiển thị theo thứ tự này. */
+  mappingIndex?: number;
+  /**
+   * Email của tài khoản được gán cho profile, ĐÃ CHE (`ab***@domain`).
+   * An toàn để log / SSE / checkpoint. KHÔNG BAO GIỜ chứa email đầy đủ.
+   */
+  accountEmailMasked?: string;
   workflowName: string;
   status: TaskStatus;
   currentStepIndex: number;
@@ -325,6 +369,9 @@ export interface WorkflowTaskProgress {
   startedAt?: string;
   finishedAt?: string;
   errorMessage?: string;
+  loginState?: GoogleLoginState;
+  cleanupState?: 'CLOSED' | 'CLOSE_FAILED' | 'KEPT_OPEN';
+  browserOpen?: boolean;
 }
 
 export interface WorkflowBatchStatus {

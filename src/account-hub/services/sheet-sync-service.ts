@@ -128,24 +128,6 @@ export class SheetSyncService {
       }
 
       this.syncJobRepo.setTotalItems(job.id, writeRequests.length);
-
-      // Apply formatting for DIE accounts
-      for (const account of accounts) {
-        if (!account || account.accountStatus !== 'DIE') continue;
-        const bindings = this.bindingRepo.findByAccount(account.id)
-          .filter(b => b.sourceId === source.id);
-        for (const binding of bindings) {
-          const tabMeta = this.sourceRepo.listTabs(source.id)
-            .find(t => t.id === binding.tabId);
-          if (!tabMeta) continue;
-          const style = account.adspowerStatus === 'DELETED' ? 'die_deleted' : 'die_active';
-          await this.sheetsClient.applyFormatting(
-            source.spreadsheetId, 0 /* sheetId fetched in client */,
-            binding.rowIndex, 0, mappings.length, style, dryRun,
-          ).catch(() => {}); // Non-fatal
-        }
-      }
-
       // Batch write
       if (writeRequests.length > 0) {
         try {

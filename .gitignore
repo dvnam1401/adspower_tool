@@ -9,6 +9,7 @@ pnpm-debug.log*
 dist/
 build/
 out/
+release/
 .cache/
 *.tsbuildinfo
 .eslintcache
@@ -25,6 +26,7 @@ out/
 *.cert
 *.crt
 credentials.json
+credentials/*.json
 token*.json
 accounts.json
 cookies*.json
@@ -45,6 +47,10 @@ data/*.sqlite*
 data/*.db*
 data/cache/
 data/sessions/
+
+# Dữ liệu chạy thật của workflow YouTube — báo cáo .xlsx và kho Channel ID theo profile
+data/reports/
+data/youtube-channels.json
 
 # AdsPower / Browser Automation Runtime & Temporary Files
 session_data/
