@@ -11,6 +11,9 @@ export interface AppConfig {
     apiKey?: string;
     defaultTimeoutMs: number;
   };
+  youtube: {
+    apiKey: string;
+  };
   llm: {
     provider: string;
     model: string;
@@ -65,6 +68,9 @@ const initialConfig: AppConfig = {
     apiUrl: (process.env.ADSPOWER_API_URL || 'http://127.0.0.1:50325').replace(/\/+$/, ''),
     apiKey: process.env.ADSPOWER_API_KEY || undefined,
     defaultTimeoutMs: Number(process.env.ADSPOWER_TIMEOUT_MS) || 30000,
+  },
+  youtube: {
+    apiKey: process.env.YOUTUBE_API_KEY || '',
   },
   llm: {
     provider: process.env.LLM_PROVIDER || '9router',
@@ -141,6 +147,9 @@ if (fs.existsSync(configFile)) {
       if (savedData.windowLayout.gapX !== undefined) initialConfig.windowLayout.gapX = Number(savedData.windowLayout.gapX);
       if (savedData.windowLayout.gapY !== undefined) initialConfig.windowLayout.gapY = Number(savedData.windowLayout.gapY);
     }
+    if (savedData.youtube) {
+      if (savedData.youtube.apiKey !== undefined) initialConfig.youtube.apiKey = String(savedData.youtube.apiKey);
+    }
     if (savedData.concurrency?.maxProfiles) {
       initialConfig.concurrency.maxProfiles = Number(savedData.concurrency.maxProfiles);
     }
@@ -208,6 +217,10 @@ export function updateSystemConfig(partial: Partial<AppConfig>): AppConfig {
     if (partial.concurrency.domActionTimeoutMs !== undefined) {
       config.concurrency.domActionTimeoutMs = Number(partial.concurrency.domActionTimeoutMs);
     }
+  }
+
+  if (partial.youtube) {
+    if (partial.youtube.apiKey !== undefined) config.youtube.apiKey = String(partial.youtube.apiKey);
   }
 
   if (partial.logging?.level) {

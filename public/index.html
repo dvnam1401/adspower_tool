@@ -42,6 +42,9 @@
 
   <!-- Phosphor Icons -->
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+  <!-- SheetJS for Excel export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   
   <!-- Custom Styles -->
   <link rel="stylesheet" href="style.css">
@@ -107,6 +110,12 @@
         <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-settings">
           <i class="ph-bold ph-gear text-lg"></i>
           <span>Cấu Hình (Settings)</span>
+        </button>
+
+        <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-youtube">
+          <i class="ph-bold ph-youtube-logo text-lg text-red-400"></i>
+          <span>YouTube Channel Check</span>
+          <span id="badge-nav-youtube" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 font-mono hidden">0</span>
         </button>
       </nav>
     </div>
@@ -944,6 +953,115 @@
             </button>
           </div>
         </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- TAB: YOUTUBE CHANNEL CHECKER               -->
+      <!-- ========================================== -->
+      <section id="tab-youtube" class="tab-pane hidden space-y-5">
+
+        <!-- API Key Card -->
+        <div class="p-4 rounded-2xl bg-surface-900/80 border border-slate-800/80 space-y-3">
+          <div class="flex items-center gap-3">
+            <div class="w-9 h-9 rounded-xl bg-red-500/10 text-red-400 flex items-center justify-center">
+              <i class="ph-bold ph-youtube-logo text-xl"></i>
+            </div>
+            <div class="flex-1">
+              <h3 class="text-sm font-bold text-white">YouTube Data API v3</h3>
+              <p class="text-xs text-slate-400">Cần YouTube API Key từ Google Cloud Console để truy vấn thông tin kênh</p>
+            </div>
+            <a href="https://console.cloud.google.com/apis/library/youtube.googleapis.com" target="_blank" rel="noopener noreferrer" class="shrink-0 text-xs text-brand-400 hover:text-brand-300 flex items-center gap-1 px-2 py-1 rounded-lg bg-brand-500/10 border border-brand-500/20 transition">
+              <i class="ph-bold ph-arrow-square-out"></i> Lấy API Key
+            </a>
+          </div>
+          <div class="flex gap-2">
+            <div class="relative flex-1">
+              <i class="ph ph-key absolute left-3 top-2.5 text-slate-400 text-sm"></i>
+              <input type="password" id="yt-api-key" placeholder="Nhập YouTube API Key (AIzaSy...)" class="w-full pl-8 pr-4 py-2 bg-surface-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500 transition">
+            </div>
+            <button id="btn-yt-save-key" class="shrink-0 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition border border-slate-700 flex items-center gap-1.5">
+              <i class="ph-bold ph-floppy-disk text-brand-400"></i> Lưu Key
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-500">Key được lưu vào cấu hình hệ thống. Để trống nếu đã lưu trước đó.</p>
+        </div>
+
+        <!-- Channel Input Area -->
+        <div class="p-4 rounded-2xl bg-surface-900/80 border border-slate-800/80 space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <i class="ph-bold ph-list-bullets text-red-400"></i> Nhập Danh Sách Kênh YouTube
+            </h3>
+            <span class="text-xs text-slate-500">Hỗ trợ: URL kênh, @handle, Channel ID — tối đa 50 kênh</span>
+          </div>
+          <textarea id="yt-channel-list" rows="7" placeholder="https://www.youtube.com/@ChannelName&#10;https://www.youtube.com/channel/UCxxxxxxxxxxxxxxxxxxxxxxxx&#10;@AnotherChannel&#10;UCxxxxxxxxxxxxxxxxxxxxxxxx&#10;https://www.youtube.com/c/CustomChannelName" class="w-full px-3 py-2.5 bg-surface-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-brand-500 resize-y transition"></textarea>
+          <div class="flex items-center justify-between">
+            <span id="yt-input-count" class="text-xs text-slate-500">0 kênh được nhập</span>
+            <div class="flex gap-2">
+              <button id="btn-yt-clear" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs font-semibold transition border border-slate-700">
+                <i class="ph-bold ph-eraser"></i> Xóa trống
+              </button>
+              <button id="btn-yt-check" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-red-500/20 active:scale-95">
+                <i class="ph-bold ph-magnifying-glass"></i> Kiểm Tra Kênh
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Progress Indicator -->
+        <div id="yt-progress" class="hidden p-4 rounded-2xl bg-surface-900/80 border border-slate-800/80">
+          <div class="flex items-center gap-3">
+            <div class="w-5 h-5 rounded-full border-2 border-red-400 border-t-transparent animate-spin shrink-0"></div>
+            <span id="yt-progress-text" class="text-sm text-slate-300">Đang kiểm tra kênh...</span>
+          </div>
+        </div>
+
+        <!-- Errors Section -->
+        <div id="yt-errors" class="hidden p-4 rounded-2xl bg-rose-900/20 border border-rose-500/30 space-y-2">
+          <h4 class="text-xs font-bold text-rose-400 flex items-center gap-2">
+            <i class="ph-bold ph-warning-circle"></i> Kênh không tìm thấy hoặc lỗi
+          </h4>
+          <div id="yt-errors-list" class="space-y-1 max-h-32 overflow-y-auto"></div>
+        </div>
+
+        <!-- Summary Stats Row -->
+        <div id="yt-stats-row" class="hidden grid grid-cols-2 lg:grid-cols-4 gap-3"></div>
+
+        <!-- Results Table Section -->
+        <div id="yt-results-section" class="hidden space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-white flex items-center gap-2">
+              <i class="ph-bold ph-chart-bar text-red-400"></i> Kết Quả Kiểm Tra
+              <span id="yt-result-count" class="text-xs font-mono text-slate-400 font-normal"></span>
+            </h3>
+            <button id="btn-yt-export" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95">
+              <i class="ph-bold ph-microsoft-excel-logo"></i> Export Excel
+            </button>
+          </div>
+
+          <div class="rounded-2xl border border-slate-800/90 bg-surface-900/60 backdrop-blur overflow-hidden shadow-2xl">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm text-slate-300">
+                <thead class="bg-surface-950/80 text-xs uppercase font-semibold text-slate-400 border-b border-slate-800">
+                  <tr>
+                    <th class="px-3 py-3.5 w-10 text-center">#</th>
+                    <th class="px-4 py-3.5">Kênh YouTube</th>
+                    <th class="px-4 py-3.5 text-right">Subscribers</th>
+                    <th class="px-4 py-3.5 text-right">Tổng Views</th>
+                    <th class="px-4 py-3.5 text-right">Số Video</th>
+                    <th class="px-4 py-3.5 text-center">Quốc Gia</th>
+                    <th class="px-4 py-3.5">Ngày Tạo</th>
+                    <th class="px-4 py-3.5 text-center">Link</th>
+                  </tr>
+                </thead>
+                <tbody id="yt-results-tbody" class="divide-y divide-slate-800/60">
+                  <!-- Injected by JS -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
       </section>
 
     </main>

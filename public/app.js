@@ -147,6 +147,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initSkillModal();
   initHealingMonitor();
   initWorkflowRunner();
+  initYoutubeChecker();
   
   const isAuthenticated = await checkAuthStatus();
   if (isAuthenticated) {
@@ -197,6 +198,10 @@ function initNavigation() {
     'tab-settings': {
       title: 'Cấu Hình Hệ Thống & AI (Settings)',
       desc: 'Tùy chỉnh AdsPower API, giới hạn luồng tự động hóa và kết nối 9router / Gemini AI'
+    },
+    'tab-youtube': {
+      title: 'YouTube Channel Checker',
+      desc: 'Kiểm tra thống kê kênh YouTube hàng loạt — subscribers, views, video count và export Excel'
     }
   };
 
@@ -2341,5 +2346,301 @@ function setWorkflowControlState(state) {
     if (btnResume) btnResume.disabled = true;
     if (btnCancel) btnCancel.disabled = true;
   }
+}
+
+
+// =========================================================================
+// YOUTUBE CHANNEL CHECKER
+// =========================================================================
+
+let youtubeResults = [];
+
+function initYoutubeChecker() {
+  const apiKeyInput = document.getElementById('yt-api-key');
+  const btnSaveKey = document.getElementById('btn-yt-save-key');
+  const textarea = document.getElementById('yt-channel-list');
+  const inputCount = document.getElementById('yt-input-count');
+  const btnClear = document.getElementById('btn-yt-clear');
+  const btnCheck = document.getElementById('btn-yt-check');
+  const btnExport = document.getElementById('btn-yt-export');
+
+  // Load saved API key status
+  fetch('/api/youtube/config')
+    .then(r => r.json())
+    .then(data => {
+      if (data.hasKey && apiKeyInput) {
+        apiKeyInput.placeholder = 'API Key đã được lưu — nhập mới để thay đổi';
+      }
+    })
+    .catch(() => {});
+
+  // Update live input count
+  if (textarea) {
+    textarea.addEventListener('input', () => {
+      const lines = textarea.value.split('\n').filter(l => l.trim());
+      if (inputCount) inputCount.textContent = `${lines.length} kênh được nhập`;
+    });
+  }
+
+  // Save API key
+  if (btnSaveKey) {
+    btnSaveKey.addEventListener('click', async () => {
+      const key = apiKeyInput?.value?.trim();
+      if (!key) {
+        showToast('Vui lòng nhập YouTube API Key!', 'error');
+        return;
+      }
+      try {
+        const res = await fetch('/api/youtube/save-key', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apiKey: key }),
+        });
+        const data = await res.json();
+        if (data.success) {
+          showToast('Đã lưu YouTube API Key thành công!', 'success');
+          if (apiKeyInput) {
+            apiKeyInput.value = '';
+            apiKeyInput.placeholder = 'API Key đã được lưu — nhập mới để thay đổi';
+          }
+        } else {
+          showToast(data.error || 'Lỗi lưu API Key!', 'error');
+        }
+      } catch (err) {
+        showToast(`Lỗi kết nối server: ${err.message}`, 'error');
+      }
+    });
+  }
+
+  // Clear textarea
+  if (btnClear) {
+    btnClear.addEventListener('click', () => {
+      if (textarea) textarea.value = '';
+      if (inputCount) inputCount.textContent = '0 kênh được nhập';
+    });
+  }
+
+  // Check channels
+  if (btnCheck) {
+    btnCheck.addEventListener('click', async () => {
+      const channels = textarea?.value?.split('\n').map(l => l.trim()).filter(Boolean) || [];
+      if (channels.length === 0) {
+        showToast('Vui lòng nhập ít nhất 1 kênh YouTube!', 'error');
+        return;
+      }
+
+      const apiKey = apiKeyInput?.value?.trim() || '';
+
+      document.getElementById('yt-progress')?.classList.remove('hidden');
+      document.getElementById('yt-results-section')?.classList.add('hidden');
+      document.getElementById('yt-errors')?.classList.add('hidden');
+      document.getElementById('yt-stats-row')?.classList.add('hidden');
+      if (btnCheck) btnCheck.disabled = true;
+
+      const progressText = document.getElementById('yt-progress-text');
+      if (progressText) progressText.textContent = `Đang kiểm tra ${channels.length} kênh...`;
+
+      try {
+        const res = await fetch('/api/youtube/check-channels', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channels, youtubeApiKey: apiKey }),
+        });
+        const data = await res.json();
+
+        if (!data.success) {
+          showToast(data.error || 'Lỗi kiểm tra kênh!', 'error');
+          return;
+        }
+
+        youtubeResults = data.results || [];
+        renderYoutubeResults(youtubeResults, data.errors || []);
+
+        // Update nav badge
+        const navBadge = document.getElementById('badge-nav-youtube');
+        if (navBadge && youtubeResults.length > 0) {
+          navBadge.textContent = String(youtubeResults.length);
+          navBadge.classList.remove('hidden');
+        }
+      } catch (err) {
+        showToast(`Lỗi kết nối: ${err.message}`, 'error');
+      } finally {
+        document.getElementById('yt-progress')?.classList.add('hidden');
+        if (btnCheck) btnCheck.disabled = false;
+      }
+    });
+  }
+
+  // Export Excel
+  if (btnExport) {
+    btnExport.addEventListener('click', () => exportYoutubeExcel(youtubeResults));
+  }
+}
+
+function ytFormatNumber(n) {
+  if (n === null || n === undefined) return 'Ẩn';
+  const num = Number(n);
+  if (num >= 1_000_000_000) return (num / 1_000_000_000).toFixed(2) + 'B';
+  if (num >= 1_000_000) return (num / 1_000_000).toFixed(2) + 'M';
+  if (num >= 1_000) return (num / 1_000).toFixed(1) + 'K';
+  return num.toLocaleString('vi-VN');
+}
+
+function renderYoutubeResults(results, errors) {
+  // Render error list
+  const errorsDiv = document.getElementById('yt-errors');
+  const errorsList = document.getElementById('yt-errors-list');
+  if (errors.length > 0 && errorsList && errorsDiv) {
+    errorsList.innerHTML = errors.map(e =>
+      `<div class="flex items-start gap-2 text-xs">
+        <i class="ph-bold ph-x-circle text-rose-400 mt-0.5 shrink-0"></i>
+        <span class="text-rose-300 font-mono truncate max-w-xs">${e.input}</span>
+        <span class="text-slate-400">— ${e.error}</span>
+      </div>`
+    ).join('');
+    errorsDiv.classList.remove('hidden');
+  } else if (errorsDiv) {
+    errorsDiv.classList.add('hidden');
+  }
+
+  if (results.length === 0) {
+    showToast('Không tìm thấy kênh nào! Kiểm tra API Key và định dạng kênh.', 'warn');
+    return;
+  }
+
+  // Aggregate stats
+  const totalSubs = results.reduce((s, r) => s + (r.subscribers || 0), 0);
+  const totalViews = results.reduce((s, r) => s + (r.totalViews || 0), 0);
+  const totalVideos = results.reduce((s, r) => s + (r.videoCount || 0), 0);
+
+  const statsRow = document.getElementById('yt-stats-row');
+  if (statsRow) {
+    statsRow.innerHTML = `
+      <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-slate-800/80 backdrop-blur shadow-sm">
+        <div class="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+          <span>Kênh Tìm Thấy</span>
+          <div class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center"><i class="ph-bold ph-youtube-logo text-lg"></i></div>
+        </div>
+        <div class="mt-2 flex items-baseline space-x-2">
+          <span class="text-2xl sm:text-3xl font-black text-red-400 font-mono">${results.length}</span>
+          <span class="text-xs text-slate-500">kênh</span>
+        </div>
+      </div>
+      <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-slate-800/80 backdrop-blur shadow-sm">
+        <div class="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+          <span>Tổng Subscribers</span>
+          <div class="w-8 h-8 rounded-lg bg-brand-500/10 text-brand-400 flex items-center justify-center"><i class="ph-bold ph-users text-lg"></i></div>
+        </div>
+        <div class="mt-2 flex items-baseline space-x-2">
+          <span class="text-2xl sm:text-3xl font-black text-brand-400 font-mono">${ytFormatNumber(totalSubs)}</span>
+        </div>
+      </div>
+      <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-slate-800/80 backdrop-blur shadow-sm">
+        <div class="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+          <span>Tổng Views</span>
+          <div class="w-8 h-8 rounded-lg bg-violet-500/10 text-violet-400 flex items-center justify-center"><i class="ph-bold ph-eye text-lg"></i></div>
+        </div>
+        <div class="mt-2 flex items-baseline space-x-2">
+          <span class="text-2xl sm:text-3xl font-black text-violet-400 font-mono">${ytFormatNumber(totalViews)}</span>
+        </div>
+      </div>
+      <div class="stat-card p-4 rounded-2xl bg-surface-900/70 border border-slate-800/80 backdrop-blur shadow-sm">
+        <div class="flex items-center justify-between text-xs font-semibold text-slate-400 uppercase tracking-wider">
+          <span>Tổng Video</span>
+          <div class="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center"><i class="ph-bold ph-video text-lg"></i></div>
+        </div>
+        <div class="mt-2 flex items-baseline space-x-2">
+          <span class="text-2xl sm:text-3xl font-black text-emerald-400 font-mono">${ytFormatNumber(totalVideos)}</span>
+        </div>
+      </div>
+    `;
+    statsRow.classList.remove('hidden');
+  }
+
+  // Render table rows
+  const tbody = document.getElementById('yt-results-tbody');
+  const resultCount = document.getElementById('yt-result-count');
+  if (resultCount) resultCount.textContent = `(${results.length} kênh)`;
+
+  if (tbody) {
+    tbody.innerHTML = results.map((r, i) => {
+      const thumbHtml = r.thumbnail
+        ? `<img src="${r.thumbnail}" alt="" class="w-10 h-10 rounded-full object-cover border border-slate-700 shrink-0" onerror="this.style.display='none'">`
+        : `<div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0"><i class="ph-bold ph-youtube-logo text-red-400"></i></div>`;
+
+      const subsHtml = r.hiddenSubscribers
+        ? `<span class="text-slate-500 text-xs italic">Ẩn</span>`
+        : `<span class="text-brand-400 font-bold font-mono">${ytFormatNumber(r.subscribers)}</span>`;
+
+      const createdDate = r.publishedAt
+        ? new Date(r.publishedAt).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })
+        : '—';
+
+      return `<tr class="hover:bg-surface-900/50 transition-colors">
+        <td class="px-3 py-3 text-center text-xs text-slate-500 font-mono">${i + 1}</td>
+        <td class="px-4 py-3">
+          <div class="flex items-center gap-3">
+            ${thumbHtml}
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-white truncate max-w-xs" title="${r.title}">${r.title || 'N/A'}</div>
+              <div class="text-xs text-slate-500 font-mono">${r.handle || r.id || ''}</div>
+            </div>
+          </div>
+        </td>
+        <td class="px-4 py-3 text-right">${subsHtml}</td>
+        <td class="px-4 py-3 text-right font-mono text-violet-400 font-bold">${ytFormatNumber(r.totalViews)}</td>
+        <td class="px-4 py-3 text-right font-mono text-slate-300">${(r.videoCount || 0).toLocaleString('vi-VN')}</td>
+        <td class="px-4 py-3 text-center text-xs text-slate-400">${r.country || '—'}</td>
+        <td class="px-4 py-3 text-xs text-slate-400">${createdDate}</td>
+        <td class="px-4 py-3 text-center">
+          <a href="${r.url}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs text-brand-400 hover:text-brand-300 px-2 py-1 rounded-lg bg-brand-500/10 hover:bg-brand-500/20 border border-brand-500/20 transition">
+            <i class="ph-bold ph-arrow-square-out"></i> Mở
+          </a>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+
+  document.getElementById('yt-results-section')?.classList.remove('hidden');
+  showToast(`Đã kiểm tra xong ${results.length} kênh!`, 'success');
+}
+
+function exportYoutubeExcel(results) {
+  if (!results || results.length === 0) {
+    showToast('Không có dữ liệu để export!', 'error');
+    return;
+  }
+
+  if (typeof XLSX === 'undefined') {
+    showToast('Thư viện XLSX chưa sẵn sàng. Vui lòng thử lại!', 'error');
+    return;
+  }
+
+  const rows = results.map((r, i) => ({
+    '#': i + 1,
+    'Tên Kênh': r.title || '',
+    'Handle': r.handle || '',
+    'Channel ID': r.id || '',
+    'URL': r.url || '',
+    'Subscribers': r.hiddenSubscribers ? 'Ẩn' : (r.subscribers || 0),
+    'Tổng Views': r.totalViews || 0,
+    'Số Video': r.videoCount || 0,
+    'Quốc Gia': r.country || '',
+    'Ngày Tạo': r.publishedAt ? new Date(r.publishedAt).toLocaleDateString('vi-VN') : '',
+    'Mô Tả': (r.description || '').substring(0, 200),
+  }));
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [
+    { wch: 5 }, { wch: 35 }, { wch: 25 }, { wch: 28 }, { wch: 50 },
+    { wch: 15 }, { wch: 18 }, { wch: 12 }, { wch: 12 }, { wch: 15 }, { wch: 60 },
+  ];
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'YouTube Channels');
+
+  const today = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `youtube_channels_${today}.xlsx`);
+  showToast(`Đã export ${results.length} kênh ra Excel thành công!`, 'success');
 }
 

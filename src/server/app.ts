@@ -899,6 +899,170 @@ app.delete('/api/workflow/history', (req: Request, res: Response) => {
   }
 });
 
+// ==========================================
+// YOUTUBE CHANNEL CHECKER APIS
+// ==========================================
+
+function parseYouTubeChannelInput(input: string): { type: 'id' | 'handle' | 'username'; value: string } | null {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // Bare channel ID: starts with UC and is 24 chars
+  if (/^UC[\w-]{22}$/.test(trimmed)) {
+    return { type: 'id', value: trimmed };
+  }
+
+  // Bare @handle
+  if (trimmed.startsWith('@')) {
+    return { type: 'handle', value: trimmed.slice(1) };
+  }
+
+  // YouTube URL patterns
+  const urlMatch = trimmed.match(/(?:youtube\.com)\/(channel\/(UC[\w-]{22})|@([\w.-]+)|user\/([\w.-]+)|c\/([\w.-]+))/i);
+  if (urlMatch) {
+    if (urlMatch[2]) return { type: 'id', value: urlMatch[2] };
+    if (urlMatch[3]) return { type: 'handle', value: urlMatch[3] };
+    if (urlMatch[4]) return { type: 'username', value: urlMatch[4] };
+    if (urlMatch[5]) return { type: 'handle', value: urlMatch[5] };
+  }
+
+  // Bare text (assume handle)
+  if (/^[\w.-]+$/.test(trimmed)) {
+    return { type: 'handle', value: trimmed };
+  }
+
+  return null;
+}
+
+function formatChannelResult(item: any, originalInput: string) {
+  const stats = item.statistics || {};
+  const snippet = item.snippet || {};
+  const thumbnail =
+    snippet.thumbnails?.medium?.url ||
+    snippet.thumbnails?.default?.url ||
+    '';
+  const hiddenSubscribers = Boolean(stats.hiddenSubscriberCount);
+  return {
+    id: item.id,
+    originalInput,
+    title: snippet.title || '',
+    handle: snippet.customUrl || '',
+    description: (snippet.description || '').substring(0, 200),
+    thumbnail,
+    publishedAt: snippet.publishedAt || '',
+    country: snippet.country || '',
+    subscribers: hiddenSubscribers ? null : parseInt(stats.subscriberCount || '0', 10),
+    hiddenSubscribers,
+    totalViews: parseInt(stats.viewCount || '0', 10),
+    videoCount: parseInt(stats.videoCount || '0', 10),
+    url: snippet.customUrl
+      ? `https://www.youtube.com/${snippet.customUrl}`
+      : `https://www.youtube.com/channel/${item.id}`,
+  };
+}
+
+async function fetchYouTubeChannel(
+  type: 'id' | 'handle' | 'username',
+  value: string,
+  apiKey: string,
+  originalInput: string
+): Promise<{ result?: any; error?: string }> {
+  const base = 'https://www.googleapis.com/youtube/v3/channels';
+  const parts = 'snippet,statistics';
+
+  const paramMap: Record<string, string> = {
+    id: 'id',
+    handle: 'forHandle',
+    username: 'forUsername',
+  };
+  const param = paramMap[type];
+
+  const url = `${base}?part=${parts}&${param}=${encodeURIComponent(value)}&key=${encodeURIComponent(apiKey)}`;
+
+  try {
+    const res = await fetch(url);
+    const data: any = await res.json();
+
+    if (data.error) {
+      return { error: `YouTube API: ${data.error.message}` };
+    }
+
+    if (data.items && data.items.length > 0) {
+      return { result: formatChannelResult(data.items[0], originalInput) };
+    }
+
+    // Fallback: if handle failed, try username
+    if (type === 'handle') {
+      const url2 = `${base}?part=${parts}&forUsername=${encodeURIComponent(value)}&key=${encodeURIComponent(apiKey)}`;
+      const res2 = await fetch(url2);
+      const data2: any = await res2.json();
+      if (data2.items && data2.items.length > 0) {
+        return { result: formatChannelResult(data2.items[0], originalInput) };
+      }
+    }
+
+    return { error: 'Không tìm thấy kênh.' };
+  } catch (err: any) {
+    return { error: err.message };
+  }
+}
+
+app.get('/api/youtube/config', (req: Request, res: Response) => {
+  res.json({ success: true, hasKey: Boolean(config.youtube?.apiKey) });
+});
+
+app.post('/api/youtube/save-key', (req: Request, res: Response) => {
+  const { apiKey } = req.body;
+  if (!apiKey || typeof apiKey !== 'string') {
+    return res.status(400).json({ success: false, error: 'Vui lòng nhập YouTube API Key.' });
+  }
+  updateSystemConfig({ youtube: { apiKey: apiKey.trim() } });
+  res.json({ success: true, message: 'Đã lưu YouTube API Key.' });
+});
+
+app.post('/api/youtube/check-channels', async (req: Request, res: Response) => {
+  const { channels, youtubeApiKey } = req.body;
+  const apiKey = (youtubeApiKey || '').trim() || (config.youtube?.apiKey || '');
+
+  if (!apiKey) {
+    return res.status(400).json({
+      success: false,
+      error: 'Chưa có YouTube API Key. Vui lòng nhập và lưu API Key trong tab YouTube.',
+    });
+  }
+
+  if (!Array.isArray(channels) || channels.length === 0) {
+    return res.status(400).json({ success: false, error: 'Danh sách kênh không được rỗng.' });
+  }
+
+  if (channels.length > 50) {
+    return res.status(400).json({ success: false, error: 'Tối đa 50 kênh mỗi lần kiểm tra.' });
+  }
+
+  const results: any[] = [];
+  const errors: { input: string; error: string }[] = [];
+
+  for (const rawInput of channels) {
+    const input = String(rawInput).trim();
+    if (!input) continue;
+
+    const parsed = parseYouTubeChannelInput(input);
+    if (!parsed) {
+      errors.push({ input, error: 'Không thể nhận dạng định dạng kênh.' });
+      continue;
+    }
+
+    const { result, error } = await fetchYouTubeChannel(parsed.type, parsed.value, apiKey, input);
+    if (error) {
+      errors.push({ input, error });
+    } else if (result) {
+      results.push(result);
+    }
+  }
+
+  res.json({ success: true, results, errors, total: results.length, errorCount: errors.length });
+});
+
 // Fallback 404 JSON handler for all /api/* routes to prevent serving HTML 404 pages
 app.use('/api/*', (req: Request, res: Response) => {
   res.status(404).json({
