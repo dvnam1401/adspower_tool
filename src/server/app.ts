@@ -904,21 +904,31 @@ app.delete('/api/workflow/history', (req: Request, res: Response) => {
 // ==========================================
 
 function parseYouTubeChannelInput(input: string): { type: 'id' | 'handle' | 'username'; value: string } | null {
-  const trimmed = input.trim();
+  let trimmed = input.trim();
   if (!trimmed) return null;
+
+  // URL-decode percent-encoded characters (e.g. Thai, Arabic, CJK handles like %E0%B8%98...)
+  try {
+    trimmed = decodeURIComponent(trimmed);
+  } catch {
+    // If decoding fails (malformed %), use original string
+  }
+
+  // Remove trailing ? or # query/fragment if any
+  trimmed = trimmed.split('?')[0].split('#')[0].trim();
 
   // Bare channel ID: starts with UC and is 24 chars
   if (/^UC[\w-]{22}$/.test(trimmed)) {
     return { type: 'id', value: trimmed };
   }
 
-  // Bare @handle
+  // Bare @handle (including Unicode/non-ASCII handles)
   if (trimmed.startsWith('@')) {
     return { type: 'handle', value: trimmed.slice(1) };
   }
 
-  // YouTube URL patterns
-  const urlMatch = trimmed.match(/(?:youtube\.com)\/(channel\/(UC[\w-]{22})|@([\w.-]+)|user\/([\w.-]+)|c\/([\w.-]+))/i);
+  // YouTube URL patterns — use [^/?&#]+ to support Unicode handles (Thai, Arabic, CJK, etc.)
+  const urlMatch = trimmed.match(/(?:youtube\.com)\/(channel\/(UC[\w-]{22})|@([^/?&#\s]+)|user\/([^/?&#\s]+)|c\/([^/?&#\s]+))/i);
   if (urlMatch) {
     if (urlMatch[2]) return { type: 'id', value: urlMatch[2] };
     if (urlMatch[3]) return { type: 'handle', value: urlMatch[3] };
@@ -926,8 +936,8 @@ function parseYouTubeChannelInput(input: string): { type: 'id' | 'handle' | 'use
     if (urlMatch[5]) return { type: 'handle', value: urlMatch[5] };
   }
 
-  // Bare text (assume handle)
-  if (/^[\w.-]+$/.test(trimmed)) {
+  // Bare text without URL markers — assume handle (allow Unicode, no / or :)
+  if (!trimmed.includes('/') && !trimmed.includes(':') && trimmed.length > 0) {
     return { type: 'handle', value: trimmed };
   }
 
