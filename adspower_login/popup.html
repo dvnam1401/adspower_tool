@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <title>AdsPower Bridge Status</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background-color: #0b0c0e;
+      color: #f3f4f6;
+      width: 240px;
+      padding: 12px 16px;
+      margin: 0;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding-bottom: 8px;
+      margin-bottom: 10px;
+    }
+    .header h1 {
+      font-size: 13px;
+      margin: 0;
+      font-weight: 600;
+    }
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background-color: #10b981;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0% { transform: scale(0.95); opacity: 0.5; }
+      50% { transform: scale(1.1); opacity: 1; }
+      100% { transform: scale(0.95); opacity: 0.5; }
+    }
+    .status-row {
+      font-size: 11px;
+      color: #9ca3af;
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .status-val {
+      font-weight: 500;
+    }
+    .status-val.green {
+      color: #10b981;
+    }
+    .status-val.red {
+      color: #ef4444;
+    }
+    .code-display {
+      background: #14161a;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 6px;
+      padding: 10px;
+      text-align: center;
+      margin-top: 10px;
+    }
+    .code-label {
+      font-size: 10px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+    }
+    .code-num {
+      font-family: monospace;
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: #0ea5e9;
+    }
+    .settings-box {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .settings-title {
+      font-size: 10px;
+      color: #9ca3af;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .settings-box input[type="text"] {
+      width: 100%;
+      background-color: #14161a;
+      border: 1px solid rgba(255,255,255,0.08);
+      color: #f3f4f6;
+      padding: 6px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      outline: none;
+      box-sizing: border-box;
+    }
+    .settings-box input[type="text"]:focus {
+      border-color: rgba(255,255,255,0.2);
+    }
+    .save-url-btn {
+      background-color: #0ea5e9;
+      border: none;
+      color: white;
+      padding: 6px 10px;
+      font-size: 11px;
+      font-weight: 500;
+      border-radius: 4px;
+      cursor: pointer;
+      text-align: center;
+      transition: background-color 0.2s;
+    }
+    .save-url-btn:hover {
+      background-color: #0284c7;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="dot"></div>
+    <h1>AdsPower 2FA Bridge</h1>
+  </div>
+  <div class="status-row">
+    <span>Trạng thái:</span>
+    <span class="status-val green">Hoạt động ngầm</span>
+  </div>
+  <div class="status-row">
+    <span>Kết nối AdsPower:</span>
+    <span id="connStatus" class="status-val red">Chưa nhận mã</span>
+  </div>
+  <div class="code-display">
+    <div class="code-label">Mã 2FA mới nhất:</div>
+    <div id="bridgeCode" class="code-num">------</div>
+  </div>
+  <div class="settings-box">
+    <div class="settings-title">Cấu hình URL nguồn 2FA:</div>
+    <input type="text" id="adspowerUrl" placeholder="https://start.adspower.net/" autocomplete="off" spellcheck="false">
+    <button id="saveUrlBtn" class="save-url-btn">Lưu cấu hình</button>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

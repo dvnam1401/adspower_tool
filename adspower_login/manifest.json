@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "AdsPower to FB 2FA Bridge",
+  "version": "1.1",
+  "description": "Tách biệt nhiệm vụ: Lấy mã 2FA từ AdsPower Start Page và tự động điền vào Facebook.",
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://www.facebook.com/*",
+    "https://start.adspower.net/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "icon.png"
+  },
+  "icons": {
+    "128": "icon.png"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.facebook.com/two_step_verification/two_factor/*",
+        "https://www.facebook.com/two_factor/*",
+        "https://www.facebook.com/*/checkpoint/*",
+        "https://www.facebook.com/two_step_verification/*"
+      ],
+      "js": ["content_fb.js"],
+      "run_at": "document_end",
+      "all_frames": true
+    },
+    {
+      "matches": ["https://start.adspower.net/*"],
+      "js": ["content_adspower.js"],
+      "run_at": "document_end",
+      "all_frames": true
+    }
+  ]
+}

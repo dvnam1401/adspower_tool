@@ -48,6 +48,172 @@
   
   <!-- Custom Styles -->
   <link rel="stylesheet" href="style.css">
+  <!-- Account Hub Styles (embedded to keep single-page) -->
+  <style id="account-hub-styles">
+/* =====================================================================
+   Account Hub — Stylesheet (namespaced .ah-*)
+===================================================================== */
+.ah-tab-wrap { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.ah-toolbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 0 10px 0; flex-wrap: wrap;
+}
+.ah-search {
+  flex: 1; min-width: 180px;
+  padding: 6px 12px;
+  background: rgba(15,17,23,0.9);
+  border: 1px solid #2e3250;
+  border-radius: 8px;
+  color: #e2e8f0; font-size: 13px;
+}
+.ah-search:focus { outline: none; border-color: #6366f1; }
+.ah-select {
+  padding: 6px 10px;
+  background: rgba(15,17,23,0.9);
+  border: 1px solid #2e3250;
+  border-radius: 8px;
+  color: #e2e8f0; font-size: 13px;
+}
+.ah-count-label { color: #6b7280; font-size: 12px; margin-left: auto; }
+/* Badges */
+.ah-badge { font-size: 11px; padding: 2px 8px; border-radius: 12px; font-weight: 600; display: inline-block; }
+.ah-badge-warn  { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid #f59e0b; }
+.ah-badge-live  { background: rgba(34,197,94,0.15);  color: #22c55e; }
+.ah-badge-die   { background: rgba(239,68,68,0.15);  color: #ef4444; }
+.ah-badge-check { background: rgba(99,102,241,0.15); color: #6366f1; }
+.ah-badge-grey  { background: rgba(107,114,128,0.15);color: #6b7280; }
+/* Table */
+.ah-table-wrap { overflow-x: auto; flex: 1; }
+.ah-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ah-table thead tr { background: rgba(15,23,42,0.95); position: sticky; top: 0; z-index: 10; }
+.ah-table th {
+  padding: 10px 12px; text-align: left; color: #6b7280;
+  font-weight: 600; border-bottom: 1px solid #2e3250;
+  white-space: nowrap; user-select: none;
+}
+.ah-table th.sortable { cursor: pointer; }
+.ah-table th.sortable:hover { color: #e2e8f0; }
+.ah-table td {
+  padding: 9px 12px; border-bottom: 1px solid rgba(46,50,80,0.4);
+  max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ah-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+.ah-table tbody tr.row-die-active {
+  border-left: 3px solid #ff4444;
+  box-shadow: inset 3px 0 12px rgba(255,68,68,0.08);
+}
+.ah-table tbody tr.row-die-active td:first-child + td { font-weight: 600; color: #ff9999; }
+.ah-table tbody tr.row-die-deleted td { color: #9e5a5a; }
+.ah-loading-row td, .ah-empty-row td { text-align: center; padding: 32px; color: #6b7280; }
+.ah-copy-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  margin-left: 4px; padding: 1px 5px; font-size: 11px;
+  background: transparent; border: 1px solid #2e3250; border-radius: 3px;
+  color: #6b7280; cursor: pointer; vertical-align: middle;
+}
+.ah-copy-btn:hover { background: #1a1d27; color: #e2e8f0; }
+/* Buttons inside AH */
+.ah-btn {
+  padding: 5px 12px; border-radius: 8px;
+  border: 1px solid #2e3250; background: #1a1d27;
+  color: #e2e8f0; cursor: pointer; font-size: 12px;
+  transition: background 0.15s;
+}
+.ah-btn:hover { background: #262a3d; }
+.ah-btn-primary { background: #6366f1; border-color: #6366f1; color: #fff; }
+.ah-btn-primary:hover { background: #4f52cc; }
+.ah-btn-danger  { background: #ef4444; border-color: #ef4444; color: #fff; }
+.ah-btn-warn    { background: #f59e0b; border-color: #f59e0b; color: #000; }
+.ah-btn-ghost   { background: transparent; border-color: transparent; }
+.ah-btn-ghost:hover { background: rgba(255,255,255,0.06); }
+.ah-btn-sm      { padding: 3px 9px; font-size: 11px; }
+/* Pagination */
+.ah-pagination {
+  display: flex; align-items: center; gap: 6px;
+  padding: 10px 0; justify-content: center; flex-wrap: wrap;
+}
+.ah-page-btn {
+  min-width: 30px; padding: 3px 7px; text-align: center;
+  border-radius: 6px; border: 1px solid #2e3250;
+  background: #1a1d27; color: #e2e8f0; cursor: pointer; font-size: 12px;
+}
+.ah-page-btn:hover { background: #262a3d; }
+.ah-page-btn.active { background: #6366f1; border-color: #6366f1; color: #fff; }
+.ah-page-btn:disabled { opacity: 0.4; cursor: default; }
+/* Modal */
+.ah-modal {
+  position: fixed; inset: 0; z-index: 300;
+  display: flex; align-items: center; justify-content: center;
+}
+.ah-modal.hidden { display: none !important; }
+.ah-modal-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.65); }
+.ah-modal-box {
+  position: relative; background: #1a1d27; border: 1px solid #2e3250;
+  border-radius: 12px; width: min(720px, 95vw); max-height: 90vh;
+  display: flex; flex-direction: column; overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0,0,0,0.6);
+}
+.ah-modal-box--sm { width: min(480px, 95vw); }
+.ah-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-bottom: 1px solid #2e3250;
+}
+.ah-modal-header h2 { margin: 0; font-size: 15px; font-weight: 700; color: #f1f5f9; }
+.ah-modal-body { padding: 20px; overflow-y: auto; flex: 1; }
+.ah-modal-footer {
+  padding: 14px 20px; border-top: 1px solid #2e3250;
+  display: flex; gap: 8px; justify-content: flex-end;
+}
+.ah-btn-icon { background: transparent; border: none; color: #6b7280; cursor: pointer; font-size: 16px; padding: 4px 8px; border-radius: 6px; }
+.ah-btn-icon:hover { color: #e2e8f0; background: rgba(255,255,255,0.06); }
+/* Status row */
+.ah-status-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+/* Field grid */
+.ah-field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 20px; }
+@media (max-width: 560px) { .ah-field-grid { grid-template-columns: 1fr; } }
+.ah-field-item { display: flex; flex-direction: column; gap: 4px; }
+.ah-field-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; }
+.ah-field-value {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; background: rgba(15,17,23,0.9);
+  border: 1px solid #2e3250; border-radius: 6px;
+  min-height: 32px; word-break: break-all; font-size: 13px;
+}
+.ah-input {
+  width: 100%; padding: 7px 11px;
+  background: rgba(15,17,23,0.9); border: 1px solid #2e3250;
+  border-radius: 6px; color: #e2e8f0; font-size: 13px; box-sizing: border-box;
+}
+.ah-input:focus { outline: none; border-color: #6366f1; }
+.ah-form-label {
+  display: flex; flex-direction: column; gap: 5px;
+  margin-bottom: 12px; font-size: 13px; color: #e2e8f0;
+}
+.ah-form-label .req { color: #ef4444; }
+/* History */
+.ah-history-section { margin-top: 20px; }
+.ah-history-section summary { cursor: pointer; color: #6b7280; font-size: 13px; }
+.ah-history-list { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.ah-history-item {
+  padding: 8px 12px; background: rgba(15,17,23,0.9);
+  border-radius: 6px; border-left: 2px solid #6366f1;
+  font-size: 12px; color: #6b7280;
+}
+.ah-history-item strong { color: #e2e8f0; }
+/* Dry-run badge */
+#ah-dry-run-badge { display: inline-flex; align-items: center; gap: 4px; }
+/* Header bar for AH tab */
+.ah-header-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 0 12px 0; border-bottom: 1px solid rgba(46,50,80,0.6);
+  margin-bottom: 12px;
+}
+.ah-header-bar h3 { margin: 0; font-size: 14px; font-weight: 700; color: #f1f5f9; display: flex; align-items: center; gap: 8px; }
+.ah-header-actions { display: flex; align-items: center; gap: 8px; }
+.ah-text-muted { color: #6b7280; }
+.ah-link { color: #6366f1; text-decoration: none; }
+.ah-link:hover { text-decoration: underline; }
+  </style>
 </head>
 <body class="bg-surface-950 text-slate-100 h-full flex overflow-hidden font-sans selection:bg-brand-500 selection:text-white antialiased">
 
@@ -101,6 +267,20 @@
           <span id="badge-nav-workflow" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-400 border border-violet-500/20 font-mono">idle</span>
         </button>
 
+        <!-- Kho Channel ID YouTube theo profile -->
+        <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-youtube">
+          <i class="ph-bold ph-youtube-logo text-lg text-rose-400"></i>
+          <span>Kênh YouTube</span>
+          <span id="badge-nav-youtube" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-rose-500/10 text-rose-400 border border-rose-500/20 font-mono">0</span>
+        </button>
+
+        <!-- Proxy Checker -->
+        <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-proxy-checker">
+          <i class="ph-bold ph-shield-check text-lg"></i>
+          <span>Proxy Checker</span>
+          <span id="badge-nav-proxy-checker" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 font-mono">NEW</span>
+        </button>
+
         <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-logs">
           <i class="ph-bold ph-terminal-window text-lg"></i>
           <span>Live Logs & Console</span>
@@ -112,10 +292,23 @@
           <span>Cấu Hình (Settings)</span>
         </button>
 
-        <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-youtube">
+        <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-youtube-checker">
           <i class="ph-bold ph-youtube-logo text-lg text-red-400"></i>
           <span>YouTube Channel Check</span>
-          <span id="badge-nav-youtube" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 font-mono hidden">0</span>
+          <span id="badge-nav-youtube-checker" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 border border-red-500/20 font-mono hidden">0</span>
+        </button>
+        <!-- Account Hub — in-app tab -->
+        <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-account-hub">
+          <i class="ph-bold ph-database text-lg"></i>
+          <span>Account Hub</span>
+          <span id="badge-nav-account-hub" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-400 border border-indigo-500/20">NEW</span>
+        </button>
+
+        <!-- Quản lý quyền Page (FEAT-007 Step 1) -->
+        <button class="nav-item w-full flex items-center space-x-3 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition" data-tab="tab-page-inventory">
+          <i class="ph-bold ph-facebook-logo text-lg text-blue-400"></i>
+          <span>Quản lý quyền Page</span>
+          <span id="badge-nav-page-inventory" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">NEW</span>
         </button>
       </nav>
     </div>
@@ -300,6 +493,13 @@
 
           <!-- Filter selects -->
           <div class="flex items-center space-x-2.5 overflow-x-auto pb-1 lg:pb-0">
+            <!-- Browser provider filter -->
+            <select id="select-profile-source" class="px-3 py-2 bg-surface-950/90 border border-slate-800 rounded-xl text-sm text-slate-300 focus:outline-none focus:border-brand-500 shrink-0">
+              <option value="all">Tất cả nguồn</option>
+              <option value="adspower">AdsPower</option>
+              <option value="taothao">taothaoAIClaw</option>
+            </select>
+
             <!-- Group filter -->
             <select id="select-group" class="px-3 py-2 bg-surface-950/90 border border-slate-800 rounded-xl text-sm text-slate-300 focus:outline-none focus:border-brand-500 shrink-0">
               <option value="">Tất cả nhóm</option>
@@ -311,6 +511,10 @@
               <option value="active">Đang mở (Active)</option>
               <option value="inactive">Đã đóng (Inactive)</option>
             </select>
+
+            <button id="btn-open-taothao-list" class="px-3 py-2 rounded-xl bg-sky-600/20 hover:bg-sky-600/40 text-sky-300 border border-sky-500/30 text-sm font-semibold transition inline-flex items-center gap-1.5 shrink-0" title="Dán danh sách ID hoặc tên profile taothaoAIClaw để mở cửa sổ">
+              <i class="ph-bold ph-list-plus"></i> Mở list taothao
+            </button>
           </div>
         </div>
 
@@ -598,13 +802,54 @@
               <i class="ph-bold ph-sliders text-brand-400"></i> Cấu Hình Workflow
             </h3>
 
+            <!-- Browser Provider (AdsPower / taothaoAIClaw) -->
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">Browser Provider</label>
+              <select id="wf-provider-select" class="w-full px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+                <option value="adspower">AdsPower</option>
+                <option value="taothao">taothaoAIClaw</option>
+              </select>
+              <div id="wf-provider-hint" class="text-[10px] text-slate-500 mt-1">Credential lấy tự động từ chính profile AdsPower.</div>
+            </div>
+
             <!-- Workflow Preset -->
             <div>
               <label class="block text-xs font-semibold text-slate-400 mb-1.5">Workflow Preset</label>
               <select id="wf-preset-select" class="w-full px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-brand-500">
                 <option value="facebook_login">Facebook Auto Login (3 steps)</option>
-                <option value="google_search">Google Search Test (2 steps)</option>
+                <option value="google_account_login">Google Account Login Test</option>
+                <option value="get_token_cookie">Get Token Cookie Extension (2 steps)</option>
+                <option value="youtube_channel_videos">YouTube: Tổng Hợp Video Theo Profile (2 steps)</option>
               </select>
+            </div>
+
+            <!-- Google Account Login: nguồn credential phụ thuộc provider -->
+            <div id="wf-google-credentials" class="hidden">
+              <div id="wf-google-creds-adspower" class="px-3 py-2.5 bg-surface-950 border border-slate-800 rounded-xl text-[11px] text-slate-300 space-y-1">
+                <div class="flex items-center gap-1.5">🔐 <span class="font-semibold text-slate-400">Credentials:</span> From AdsPower profile (auto)</div>
+                <div class="flex items-center gap-1.5">🔐 <span class="font-semibold text-slate-400">2FA:</span> From start.adspower.net</div>
+                <div class="text-[10px] text-slate-500 mt-1">Không cần nhập username/password — lấy tự động theo từng profile.</div>
+              </div>
+              <div id="wf-google-creds-taothao" class="hidden px-3 py-2.5 bg-surface-950 border border-amber-500/30 rounded-xl text-[11px] text-slate-300 space-y-1">
+                <div class="flex items-center gap-1.5">🔐 <span class="font-semibold text-slate-400">Credentials:</span> Bạn dán ở khung "Tài Khoản Google" bên dưới</div>
+                <div class="flex items-center gap-1.5">🔐 <span class="font-semibold text-slate-400">2FA:</span> Cột thứ 3 mỗi dòng (secret base32 / otpauth://)</div>
+                <div class="text-[10px] text-slate-500 mt-1">taothaoAIClaw không lưu credential trong profile. Số tài khoản phải khớp đúng số profile.</div>
+              </div>
+            </div>
+
+            <!-- YouTube: kho Channel ID đã lưu -> lượt sau không phải mở trình duyệt -->
+            <div id="wf-youtube-options" class="hidden px-3 py-2.5 bg-surface-950 border border-slate-800 rounded-xl space-y-2">
+              <label class="flex items-start gap-2 cursor-pointer">
+                <input type="checkbox" id="wf-youtube-refresh" class="mt-0.5 w-3.5 h-3.5 accent-brand-500 cursor-pointer">
+                <span class="text-[11px] text-slate-300 leading-relaxed">
+                  Đọc lại Channel ID từ trình duyệt
+                  <span class="block text-[10px] text-slate-500 mt-0.5">Bỏ trống: profile đã có Channel ID trong kho sẽ KHÔNG mở trình duyệt, chỉ gọi Data API.</span>
+                </span>
+              </label>
+              <div class="text-[10px] text-slate-500 flex items-center justify-between gap-2 pt-1.5 border-t border-slate-800">
+                <span id="wf-youtube-cache-count" class="font-mono">Kho Channel ID: —</span>
+                <button id="btn-wf-youtube-cache" type="button" class="text-rose-400 hover:text-rose-300 font-semibold">Xem kho →</button>
+              </div>
             </div>
 
             <!-- Concurrency Slider -->
@@ -625,12 +870,15 @@
               <button id="btn-wf-run" class="w-full py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold flex items-center justify-center gap-2 transition shadow-md shadow-brand-500/25 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed">
                 <i class="ph-bold ph-play text-sm"></i> Run Batch Workflow
               </button>
-              <div class="grid grid-cols-3 gap-2">
+              <div class="grid grid-cols-2 gap-2">
                 <button id="btn-wf-pause" disabled class="py-2 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 text-xs font-semibold flex items-center justify-center gap-1 transition disabled:opacity-40">
                   <i class="ph-bold ph-pause text-sm"></i> Pause
                 </button>
                 <button id="btn-wf-resume" disabled class="py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 text-xs font-semibold flex items-center justify-center gap-1 transition disabled:opacity-40">
                   <i class="ph-bold ph-play text-sm"></i> Resume
+                </button>
+                <button id="btn-wf-retry" disabled class="py-2 rounded-xl bg-blue-500/10 hover:bg-blue-500/20 border border-blue-500/20 text-blue-400 text-xs font-semibold flex items-center justify-center gap-1 transition disabled:opacity-40">
+                  <i class="ph-bold ph-arrow-clockwise text-sm"></i> Retry Failed
                 </button>
                 <button id="btn-wf-cancel" disabled class="py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 text-xs font-semibold flex items-center justify-center gap-1 transition disabled:opacity-40">
                   <i class="ph-bold ph-x text-sm"></i> Cancel
@@ -638,6 +886,17 @@
               </div>
               <button id="btn-wf-clear" class="w-full py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition">
                 <i class="ph-bold ph-trash text-sm"></i> Xóa Lịch Sử
+              </button>
+            </div>
+
+            <!-- Báo cáo YouTube: chỉ hiện sau khi batch YouTube xuất xong file Excel -->
+            <div id="wf-youtube-report" class="hidden pt-2 border-t border-slate-800 space-y-2">
+              <div class="text-[11px] text-slate-300 flex items-start gap-1.5">
+                <i class="ph-bold ph-microsoft-excel-logo text-emerald-400 text-sm mt-0.5"></i>
+                <span id="wf-youtube-report-summary" class="leading-relaxed"></span>
+              </div>
+              <button id="btn-wf-youtube-download" type="button" class="w-full py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 text-emerald-400 text-xs font-bold flex items-center justify-center gap-1.5 transition">
+                <i class="ph-bold ph-download-simple text-sm"></i> Tải File Excel Báo Cáo
               </button>
             </div>
           </div>
@@ -667,6 +926,7 @@
                   <input type="text" id="wf-profile-search" placeholder="Tìm nhanh theo tên, ID, serial..." class="w-full pl-7 pr-3 py-1.5 bg-surface-950 border border-slate-800 rounded-lg text-xs text-slate-200 focus:outline-none focus:border-brand-500">
                 </div>
                 <div class="flex items-center gap-1.5 shrink-0">
+                  <button id="btn-wf-reload-profiles" title="Tải lại danh sách profile của provider đang chọn" class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition font-semibold"><i class="ph-bold ph-arrows-clockwise"></i></button>
                   <button id="btn-wf-select-all" class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition font-semibold">Chọn Tất Cả</button>
                   <button id="btn-wf-deselect-all" class="text-xs px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition font-semibold">Bỏ Chọn</button>
                 </div>
@@ -700,12 +960,37 @@
                 </div>
                 <!-- Not Found Profile Pills List -->
                 <div id="wf-text-notfound-list" class="hidden pt-1 border-t border-slate-800/80 space-y-1">
-                  <div class="text-[11px] text-rose-400 font-semibold">⚠️ Các profile KHÔNG TỒN TẠI trong AdsPower (sẽ báo lỗi và tổng hợp khi chạy):</div>
+                  <div id="wf-text-notfound-label" class="text-[11px] text-rose-400 font-semibold">⚠️ Các profile KHÔNG TỒN TẠI trong AdsPower (sẽ báo lỗi và tổng hợp khi chạy):</div>
                   <div id="wf-text-notfound-pills" class="flex flex-wrap gap-1"></div>
                 </div>
               </div>
             </div>
 
+          </div>
+        </div>
+
+        <!-- Google Accounts — dùng cho provider KHÔNG mang credential (taothaoAIClaw) -->
+        <div id="wf-accounts-card" class="hidden rounded-2xl bg-surface-900/80 border border-slate-800/90 shadow-xl overflow-hidden">
+          <div class="px-4 py-3 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <i class="ph-bold ph-key text-amber-400"></i>
+              <span class="text-sm font-bold text-white">Tài Khoản Google (gmail,password,2fa)</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="wf-accounts-count" class="text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-300 font-mono font-bold">0 tài khoản</span>
+              <button type="button" id="btn-wf-clear-accounts" class="text-[11px] text-slate-500 hover:text-rose-400 font-semibold transition">
+                <i class="ph ph-trash"></i> Xóa
+              </button>
+            </div>
+          </div>
+          <div class="p-3 space-y-3">
+            <textarea id="wf-google-accounts" rows="6" spellcheck="false" autocomplete="off" placeholder="Mỗi dòng một tài khoản, ĐÚNG THỨ TỰ với danh sách profile:&#10;a@gmail.com,MatKhau1,JBSWY3DPEHPK3PXP&#10;b@gmail.com,MatKhau2,&#10;c@gmail.com,MatKhau3,otpauth://totp/acc?secret=XXXX" class="w-full p-3 bg-surface-950 border border-slate-800 rounded-xl text-xs text-slate-100 font-mono focus:outline-none focus:border-brand-500 resize-y leading-relaxed"></textarea>
+            <div class="text-[10px] text-slate-500 leading-relaxed">
+              Ghép CỐ ĐỊNH theo vị trí: tài khoản dòng N → profile thứ N trong danh sách đã chọn (không tự sắp xếp lại).
+              Dữ liệu chỉ nằm trong RAM của server khi chạy — không ghi log, không lưu file, không gửi qua SSE.
+            </div>
+            <div id="wf-accounts-status" class="hidden px-3 py-2 rounded-xl border text-xs whitespace-pre-line"></div>
+            <div id="wf-mapping-preview" class="hidden border border-slate-800 rounded-xl overflow-hidden divide-y divide-slate-800/60"></div>
           </div>
         </div>
 
@@ -727,6 +1012,388 @@
           </div>
         </div>
 
+      </section>
+
+      <!-- ========================================== -->
+      <!-- TAB: KHO CHANNEL ID YOUTUBE THEO PROFILE   -->
+      <!-- ========================================== -->
+      <section id="tab-youtube" class="tab-pane hidden space-y-5">
+        <div class="p-5 sm:p-6 rounded-2xl bg-surface-900/80 border border-slate-800/90 shadow-xl space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+            <div>
+              <h3 class="text-base font-bold text-white flex items-center gap-2">
+                <i class="ph-bold ph-youtube-logo text-rose-400 text-lg"></i> Kho Channel ID Theo Profile
+              </h3>
+              <p class="text-xs text-slate-400 mt-1 leading-relaxed">
+                Ánh xạ <span class="font-mono text-slate-300">profile → Channel ID</span> đọc được từ trình duyệt.
+                Còn bản ghi ở đây thì lượt chạy sau <b class="text-emerald-400">không mở trình duyệt nữa</b>, chỉ gọi YouTube Data API.
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="btn-yt-cache-reload" type="button" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold flex items-center gap-1.5 transition">
+                <i class="ph-bold ph-arrows-clockwise text-sm"></i> Tải lại
+              </button>
+              <button id="btn-yt-cache-clear" type="button" class="px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 text-rose-400 text-xs font-bold flex items-center gap-1.5 transition">
+                <i class="ph-bold ph-trash text-sm"></i> Xoá toàn bộ
+              </button>
+            </div>
+          </div>
+
+          <div class="text-xs text-slate-400 flex items-center gap-2">
+            <i class="ph-bold ph-info text-slate-500"></i>
+            <span>Xoá một dòng khi profile đã đổi kênh hoặc Channel ID sai — lượt chạy sau sẽ mở trình duyệt đọc lại profile đó.</span>
+          </div>
+
+          <div class="rounded-2xl border border-slate-800 overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs">
+                <thead class="bg-surface-950/70 text-slate-400">
+                  <tr class="text-left">
+                    <th class="px-3 py-2.5 font-semibold">Profile</th>
+                    <th class="px-3 py-2.5 font-semibold">Backend</th>
+                    <th class="px-3 py-2.5 font-semibold">Kênh</th>
+                    <th class="px-3 py-2.5 font-semibold">Nguồn đọc</th>
+                    <th class="px-3 py-2.5 font-semibold text-right">Video</th>
+                    <th class="px-3 py-2.5 font-semibold">Cập nhật</th>
+                    <th class="px-3 py-2.5"></th>
+                  </tr>
+                </thead>
+                <tbody id="yt-cache-tbody" class="divide-y divide-slate-800/60 text-slate-300">
+                  <tr>
+                    <td colspan="7" class="px-3 py-10 text-center text-slate-500">
+                      <i class="ph-bold ph-youtube-logo text-3xl block mx-auto mb-2 text-slate-700"></i>
+                      Chưa có Channel ID nào được lưu. Chạy workflow "YouTube: Tổng Hợp Video Theo Profile" để tạo kho.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================== -->
+      <!-- TAB: QUẢN LÝ QUYỀN PAGE (FEAT-007 Step 1)  -->
+      <!-- ========================================== -->
+      <section id="tab-page-inventory" class="tab-pane hidden space-y-5">
+        <!-- Header banner -->
+        <div class="p-5 sm:p-6 rounded-2xl bg-surface-900/80 border border-slate-800/90 shadow-xl space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+            <div>
+              <h3 class="text-base font-bold text-white flex items-center gap-2">
+                <i class="ph-bold ph-facebook-logo text-blue-400"></i>
+                Quản Lý Quyền Page — Step 1: Quét Danh Sách Page (Inventory)
+              </h3>
+              <p class="text-xs text-slate-400 mt-1">Tự động quét và liệt kê toàn bộ Facebook Pages do AdsPower profile quản lý với bằng chứng URL và GraphQL minh chứng.</p>
+            </div>
+          </div>
+
+          <!-- Configuration & Options Grid -->
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+            <!-- Option 1: Profile Selector -->
+            <div class="space-y-1.5">
+              <label class="block text-xs font-semibold text-slate-400">AdsPower Profile <span class="text-rose-400">*</span></label>
+              <select id="page-inv-profile-select" class="w-full px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500">
+                <option value="">-- Chọn profile để quét Page --</option>
+              </select>
+              <input type="text" id="page-inv-profile-input" placeholder="Hoặc nhập user_id / serial / tên profile (ưu tiên nếu có)" class="w-full mt-1.5 px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-blue-500">
+            </div>
+
+            <!-- Option 2: Max expansions limit -->
+            <div class="space-y-1.5">
+              <label class="block text-xs font-semibold text-slate-400" title="Giới hạn số lần bấm 'Xem thêm trang cá nhân'">Giới Hạn Bấm "Xem Thêm" (Max Expansions)</label>
+              <input type="number" id="page-inv-max-expansions" value="100" min="1" max="1000" class="w-full px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-blue-500">
+            </div>
+
+            <!-- Option 3: Timeout ms -->
+            <div class="space-y-1.5">
+              <label class="block text-xs font-semibold text-slate-400">Thời Gian Chờ Thao Tác (UI Timeout ms)</label>
+              <input type="number" id="page-inv-timeout-ms" value="30000" min="5000" step="1000" class="w-full px-3 py-2 bg-surface-950 border border-slate-800 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-blue-500">
+            </div>
+
+            <!-- Option 4 & 5: Checkboxes -->
+            <div class="flex flex-col justify-center space-y-2 pt-2 lg:pt-0">
+              <label class="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                <input type="checkbox" id="page-inv-keep-open" checked class="rounded bg-surface-950 border-slate-700 text-blue-500 focus:ring-0">
+                <span>Giữ trình duyệt MỞ sau khi quét</span>
+              </label>
+              <label class="flex items-center space-x-2 text-xs text-slate-300 cursor-pointer">
+                <input type="checkbox" id="page-inv-show-unresolved" checked class="rounded bg-surface-950 border-slate-700 text-blue-500 focus:ring-0">
+                <span>Hiển thị danh mục chưa rõ URL (Unresolved)</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- Actions & Status Bar -->
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-slate-800">
+            <div class="flex items-center space-x-3">
+              <button id="btn-page-inv-start" class="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-blue-500/25 active:scale-95">
+                <i class="ph-bold ph-link-simple"></i> Lấy link Page
+              </button>
+              <button id="btn-page-inv-stop" disabled class="px-4 py-2.5 rounded-xl bg-rose-600/20 hover:bg-rose-600/40 text-rose-300 border border-rose-500/30 text-xs font-bold transition flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed">
+                <i class="ph-bold ph-stop"></i> Dừng Quét
+              </button>
+            </div>
+
+            <!-- Error message display banner -->
+            <div id="page-inv-error-alert" class="hidden flex-1 px-4 py-2 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs font-medium flex items-center justify-between">
+              <span id="page-inv-error-text"></span>
+              <button onclick="document.getElementById('page-inv-error-alert').classList.add('hidden')" class="p-1 hover:text-rose-200">
+                <i class="ph-bold ph-x"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- Progress / Job Running Panel with Telemetry & Checkpoint -->
+          <div id="page-inv-job-progress" class="hidden p-4 rounded-xl bg-surface-950/90 border border-blue-500/30 space-y-2">
+            <div class="flex items-center justify-between text-xs">
+              <div class="flex items-center space-x-2">
+                <span id="page-inv-phase-badge" class="px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 text-[10px] font-mono font-bold uppercase">OPEN_SWITCHER</span>
+                <span id="page-inv-stage-label" class="font-semibold text-blue-300">Đang khởi tạo...</span>
+              </div>
+              <span id="page-inv-percent-label" class="font-mono font-bold text-white">0%</span>
+            </div>
+            <div class="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+              <div id="page-inv-progress-bar" class="h-full bg-gradient-to-r from-blue-600 to-indigo-500 transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1 text-[11px] text-slate-400">
+              <span id="page-inv-detail-label">Đang chuẩn bị quét...</span>
+              <div class="flex items-center space-x-3 text-[11px]">
+                <span id="page-inv-checkpoint-label" class="font-mono text-indigo-300">Checkpoint: Chưa có</span>
+                <span id="page-inv-expansions-label" class="font-mono text-slate-500">Bấm "Xem thêm": 0</span>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Summary Stats Cards & Results Panel -->
+        <div class="rounded-2xl border border-slate-800/90 bg-surface-900/60 backdrop-blur overflow-hidden shadow-2xl space-y-4 p-5">
+          <!-- Stats Bar -->
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="stat-card p-3.5 rounded-xl bg-surface-950 border border-slate-800">
+              <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Page Xác Thực (Verified)</div>
+              <div class="mt-1 text-2xl font-black text-emerald-400 font-mono" id="page-inv-stat-verified">0</div>
+            </div>
+            <div class="stat-card p-3.5 rounded-xl bg-surface-950 border border-slate-800">
+              <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Mục Chưa Rõ URL (Unresolved)</div>
+              <div class="mt-1 text-2xl font-black text-amber-400 font-mono" id="page-inv-stat-unresolved">0</div>
+            </div>
+            <div class="stat-card p-3.5 rounded-xl bg-surface-950 border border-slate-800">
+              <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Tổng Đã Quét</div>
+              <div class="mt-1 text-2xl font-black text-white font-mono" id="page-inv-stat-total">0</div>
+            </div>
+            <div class="stat-card p-3.5 rounded-xl bg-surface-950 border border-slate-800">
+              <div class="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">Trạng Thái Job</div>
+              <div class="mt-1 text-sm font-bold text-slate-300" id="page-inv-job-status-badge">Idle</div>
+            </div>
+          </div>
+
+          <!-- Toolbar: Search & Export -->
+          <div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between pt-2">
+            <div class="flex-1 relative">
+              <i class="ph ph-magnifying-glass absolute left-3.5 top-2.5 text-slate-400 text-base"></i>
+              <input type="text" id="page-inv-search" placeholder="Tìm theo tên Page, URL, Page ID..." class="w-full pl-9 pr-4 py-1.5 bg-surface-950 border border-slate-800 rounded-xl text-xs text-slate-200 focus:outline-none focus:border-blue-500">
+            </div>
+            <div class="flex items-center space-x-2">
+              <select id="page-inv-filter-status" class="px-3 py-1.5 bg-surface-950 border border-slate-800 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-blue-500">
+                <option value="all">Tất cả mục</option>
+                <option value="verified">Chỉ Page xác thực (Verified)</option>
+                <option value="unresolved">Chỉ mục chưa rõ URL (Unresolved)</option>
+              </select>
+              <button id="btn-page-inv-export-csv" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5" title="Xuất file CSV (Tách biệt Verified & Unresolved)">
+                <i class="ph-bold ph-file-csv text-emerald-400"></i> Xuất CSV
+              </button>
+              <button id="btn-page-inv-export-json" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition flex items-center gap-1.5" title="Xuất file JSON cấu trúc">
+                <i class="ph-bold ph-file-code text-blue-400"></i> Xuất JSON
+              </button>
+            </div>
+          </div>
+
+          <!-- Table Results Container -->
+          <div class="overflow-x-auto rounded-xl border border-slate-800">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-surface-950 text-slate-400 uppercase font-semibold border-b border-slate-800">
+                <tr>
+                  <th class="px-4 py-3 w-12 text-center">STT</th>
+                  <th class="px-4 py-3">Tên Facebook Page</th>
+                  <th class="px-4 py-3">Địa Chỉ URL Chính Xác</th>
+                  <th class="px-4 py-3 w-36">Page ID</th>
+                  <th class="px-4 py-3 w-32">Nguồn Minh Chứng</th>
+                  <th class="px-4 py-3 w-32 text-center">Trạng Thái</th>
+                </tr>
+              </thead>
+              <tbody id="page-inv-tbody" class="divide-y divide-slate-800/60 font-sans text-xs">
+                <tr>
+                  <td colspan="6" class="px-5 py-12 text-center text-slate-500">
+                    <div class="flex flex-col items-center justify-center space-y-2">
+                      <i class="ph-duotone ph-facebook-logo text-3xl text-slate-600"></i>
+                      <p>Chưa có dữ liệu quét. Chọn AdsPower profile và bấm "Bắt Đầu Quét Page".</p>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB: PROXY CHECKER                        -->
+      <!-- Kiểm tra proxy đã sử dụng trong AdsPower  -->
+      <section id="tab-proxy-checker" class="tab-pane hidden space-y-5">
+
+        <!-- Header -->
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-xl font-bold text-slate-100 flex items-center gap-2">
+              <i class="ph-bold ph-shield-check text-cyan-400"></i>
+              Proxy Checker
+            </h2>
+            <p class="text-sm text-slate-400 mt-0.5">Kiểm tra proxy nào đã được sử dụng trong danh sách tài khoản AdsPower</p>
+          </div>
+        </div>
+
+        <!-- Input Panel -->
+        <div class="rounded-2xl border border-slate-800 bg-surface-950 p-5 shadow-xl space-y-4">
+          <div class="flex items-center gap-2 mb-1">
+            <i class="ph-bold ph-list-bullets text-cyan-400"></i>
+            <span class="text-sm font-semibold text-slate-200">Danh Sách Proxy Cần Kiểm Tra</span>
+          </div>
+
+          <!-- Format selector -->
+          <div class="flex items-center gap-3 flex-wrap">
+            <span class="text-xs text-slate-400 font-medium">Format proxy:</span>
+            <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+              <input type="radio" name="proxy-format" value="auto" checked class="accent-cyan-500"> Auto-detect
+            </label>
+            <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+              <input type="radio" name="proxy-format" value="host:port" class="accent-cyan-500"> host:port
+            </label>
+            <label class="flex items-center gap-1.5 text-xs text-slate-300 cursor-pointer">
+              <input type="radio" name="proxy-format" value="host:port:user:pass" class="accent-cyan-500"> host:port:user:pass
+            </label>
+            <span class="text-slate-700 text-xs ml-2">| Hỗ trợ: socks5://, http://, user:pass@host:port</span>
+          </div>
+
+          <!-- Textarea -->
+          <textarea
+            id="proxy-checker-input"
+            rows="10"
+            placeholder="Nhập mỗi proxy trên một dòng, ví dụ:&#10;1.2.3.4:8080&#10;5.6.7.8:3128:username:password&#10;socks5://9.10.11.12:1080&#10;user:pass@13.14.15.16:9090"
+            class="w-full bg-surface-900 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-200 font-mono placeholder-slate-600 focus:outline-none focus:border-cyan-500/60 focus:ring-1 focus:ring-cyan-500/20 resize-y transition"
+          ></textarea>
+
+          <div class="flex items-center gap-3 flex-wrap">
+            <button
+              id="btn-proxy-check"
+              class="flex items-center gap-2 px-5 py-2.5 bg-cyan-600 hover:bg-cyan-500 text-white text-sm font-semibold rounded-xl transition shadow-lg shadow-cyan-900/30 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <i class="ph-bold ph-magnifying-glass"></i>
+              <span>Kiểm Tra Proxy</span>
+            </button>
+            <button
+              id="btn-proxy-reset"
+              class="flex items-center gap-2 px-4 py-2.5 border border-slate-700 hover:border-slate-500 text-slate-300 hover:text-slate-100 text-sm font-semibold rounded-xl transition"
+            >
+              <i class="ph-bold ph-arrow-counter-clockwise"></i>
+              Reset
+            </button>
+            <span id="proxy-checker-status" class="text-xs text-slate-400 ml-1 hidden">
+              <i class="ph-bold ph-spinner-gap animate-spin inline-block mr-1"></i>
+              Đang quét AdsPower...
+            </span>
+          </div>
+        </div>
+
+        <!-- Results — hidden initially -->
+        <div id="proxy-checker-results" class="hidden space-y-5">
+
+          <!-- Stats Cards -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div class="rounded-xl border border-slate-800 bg-surface-950 p-4 text-center">
+              <div id="pc-stat-total" class="text-2xl font-bold text-slate-100">0</div>
+              <div class="text-xs text-slate-400 mt-0.5">Tổng Proxy</div>
+            </div>
+            <div class="rounded-xl border border-rose-900/40 bg-rose-950/20 p-4 text-center">
+              <div id="pc-stat-used" class="text-2xl font-bold text-rose-400">0</div>
+              <div class="text-xs text-slate-400 mt-0.5">Đã Sử Dụng</div>
+            </div>
+            <div class="rounded-xl border border-emerald-900/40 bg-emerald-950/20 p-4 text-center">
+              <div id="pc-stat-unused" class="text-2xl font-bold text-emerald-400">0</div>
+              <div class="text-xs text-slate-400 mt-0.5">Chưa Sử Dụng</div>
+            </div>
+            <div class="rounded-xl border border-slate-800 bg-surface-950 p-4 text-center">
+              <div id="pc-stat-profiles" class="text-2xl font-bold text-cyan-400">0</div>
+              <div class="text-xs text-slate-400 mt-0.5">Profiles Đã Quét</div>
+            </div>
+          </div>
+
+          <!-- Used Proxies Table -->
+          <div id="proxy-used-panel" class="rounded-2xl border border-rose-900/40 bg-surface-950 overflow-hidden shadow-xl">
+            <div class="px-5 py-3.5 border-b border-rose-900/30 flex items-center justify-between bg-rose-950/20 flex-wrap gap-2">
+              <div class="flex items-center gap-2">
+                <i class="ph-bold ph-warning-circle text-rose-400"></i>
+                <span class="font-semibold text-rose-300 text-sm">Proxy Đã Được Sử Dụng</span>
+                <span id="pc-badge-used" class="text-xs px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-mono border border-rose-500/30">0</span>
+              </div>
+              <!-- Search box -->
+              <div class="relative">
+                <i class="ph-bold ph-magnifying-glass absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-500 text-xs pointer-events-none"></i>
+                <input
+                  id="pc-used-search"
+                  type="text"
+                  placeholder="Tìm proxy hoặc tên profile..."
+                  class="pl-7 pr-3 py-1.5 bg-surface-900 border border-slate-700 hover:border-slate-600 focus:border-rose-500/60 focus:ring-1 focus:ring-rose-500/20 rounded-lg text-xs text-slate-200 placeholder-slate-600 focus:outline-none transition w-64"
+                />
+              </div>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm">
+                <thead>
+                  <tr class="border-b border-slate-800 text-xs text-slate-500 uppercase tracking-wide">
+                    <th class="px-4 py-3">Proxy</th>
+                    <th class="px-4 py-3">Profiles Đang Dùng</th>
+                  </tr>
+                </thead>
+                <tbody id="pc-used-tbody" class="divide-y divide-slate-800/60 text-xs">
+                </tbody>
+              </table>
+              <div id="pc-used-empty" class="hidden py-8 text-center text-slate-500 text-sm">
+                <i class="ph-bold ph-check-circle text-emerald-500 text-2xl block mb-1"></i>
+                Không có proxy nào bị trùng!
+              </div>
+            </div>
+          </div>
+
+          <!-- Unused Proxies Panel -->
+          <div id="proxy-unused-panel" class="rounded-2xl border border-emerald-900/40 bg-surface-950 overflow-hidden shadow-xl">
+            <div class="px-5 py-3.5 border-b border-emerald-900/30 flex items-center justify-between bg-emerald-950/20">
+              <div class="flex items-center gap-2">
+                <i class="ph-bold ph-check-circle text-emerald-400"></i>
+                <span class="font-semibold text-emerald-300 text-sm">Proxy Chưa Sử Dụng</span>
+                <span id="pc-badge-unused" class="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono border border-emerald-500/30">0</span>
+              </div>
+              <div class="flex items-center gap-2">
+                <button id="btn-proxy-copy-unused" class="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-700/50 hover:border-emerald-500 text-emerald-300 hover:text-emerald-100 text-xs font-semibold rounded-lg transition">
+                  <i class="ph-bold ph-copy"></i> Copy
+                </button>
+                <button id="btn-proxy-export-unused" class="flex items-center gap-1.5 px-3 py-1.5 border border-emerald-700/50 hover:border-emerald-500 text-emerald-300 hover:text-emerald-100 text-xs font-semibold rounded-lg transition">
+                  <i class="ph-bold ph-download-simple"></i> Export .txt
+                </button>
+              </div>
+            </div>
+            <div class="p-4">
+              <textarea
+                id="pc-unused-textarea"
+                rows="8"
+                readonly
+                class="w-full bg-surface-900 border border-slate-700/50 rounded-xl px-4 py-3 text-xs text-emerald-300 font-mono focus:outline-none resize-y"
+                placeholder="(Danh sách proxy chưa dùng sẽ hiển thị ở đây)"
+              ></textarea>
+            </div>
+          </div>
+
+        </div>
       </section>
 
       <section id="tab-logs" class="tab-pane hidden space-y-4">
@@ -946,6 +1613,26 @@
             </div>
           </div>
 
+          <!-- Card 5: YouTube Data API v3 -->
+          <div class="p-5 rounded-xl bg-surface-950/80 border border-slate-800/80 space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+              <h4 class="text-xs font-bold text-brand-400 uppercase tracking-wider flex items-center gap-2">
+                <i class="ph-bold ph-youtube-logo text-sm"></i> YouTube Data API v3 (Tổng Hợp Video Theo Profile)
+              </h4>
+              <span id="setting-youtube-key-state" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400 border border-slate-700 font-semibold">Chưa cấu hình</span>
+            </div>
+
+            <p class="text-[11px] text-slate-400">
+              Workflow "YouTube: Tổng Hợp Video Theo Profile" đọc Channel ID trong từng profile rồi gọi YouTube Data API v3 để lấy toàn bộ video (link, tên, thời gian đăng, lượt view) và xuất ra 1 file Excel duy nhất. Chỉ đọc dữ liệu công khai nên dùng API Key, không cần OAuth. Quota mặc định 10.000 units/ngày.
+            </p>
+
+            <div>
+              <label class="block text-xs font-semibold text-slate-400 mb-1.5">YouTube Data API Key</label>
+              <input type="password" id="setting-youtube-key" placeholder="Để trống nếu không muốn thay đổi key đã lưu" class="w-full px-3 py-2 bg-surface-900 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 focus:outline-none focus:border-brand-500">
+              <p class="text-[10px] text-slate-500 mt-1">Google Cloud Console → APIs &amp; Services → bật "YouTube Data API v3" → Credentials → Create API Key. Key lưu trên máy và KHÔNG bao giờ được trả lại giao diện.</p>
+            </div>
+          </div>
+
           <!-- Action Bar -->
           <div class="flex items-center justify-end pt-2">
             <button id="btn-save-settings" class="px-6 py-2.5 rounded-xl bg-brand-600 hover:bg-brand-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-brand-500/25 active:scale-95">
@@ -958,7 +1645,7 @@
       <!-- ========================================== -->
       <!-- TAB: YOUTUBE CHANNEL CHECKER               -->
       <!-- ========================================== -->
-      <section id="tab-youtube" class="tab-pane hidden space-y-5">
+      <section id="tab-youtube-checker" class="tab-pane hidden space-y-5">
 
         <!-- API Key Card -->
         <div class="p-4 rounded-2xl bg-surface-900/80 border border-slate-800/80 space-y-3">
@@ -977,9 +1664,9 @@
           <div class="flex gap-2">
             <div class="relative flex-1">
               <i class="ph ph-key absolute left-3 top-2.5 text-slate-400 text-sm"></i>
-              <input type="password" id="yt-api-key" placeholder="Nhập YouTube API Key (AIzaSy...)" class="w-full pl-8 pr-4 py-2 bg-surface-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500 transition">
+              <input type="password" id="ytc-api-key" placeholder="Nhập YouTube API Key (AIzaSy...)" class="w-full pl-8 pr-4 py-2 bg-surface-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500 transition">
             </div>
-            <button id="btn-yt-save-key" class="shrink-0 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition border border-slate-700 flex items-center gap-1.5">
+            <button id="btn-ytc-save-key" class="shrink-0 px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold transition border border-slate-700 flex items-center gap-1.5">
               <i class="ph-bold ph-floppy-disk text-brand-400"></i> Lưu Key
             </button>
           </div>
@@ -994,19 +1681,19 @@
             </h3>
             <span class="text-xs text-slate-500">Hỗ trợ: URL kênh, @handle, Channel ID — tối đa 50 kênh</span>
           </div>
-          <textarea id="yt-channel-list" rows="7" placeholder="https://www.youtube.com/@ChannelName&#10;https://www.youtube.com/channel/UCxxxxxxxxxxxxxxxxxxxxxxxx&#10;@AnotherChannel&#10;UCxxxxxxxxxxxxxxxxxxxxxxxx&#10;https://www.youtube.com/c/CustomChannelName" class="w-full px-3 py-2.5 bg-surface-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-brand-500 resize-y transition"></textarea>
+          <textarea id="ytc-channel-list" rows="7" placeholder="https://www.youtube.com/@ChannelName&#10;https://www.youtube.com/channel/UCxxxxxxxxxxxxxxxxxxxxxxxx&#10;@AnotherChannel&#10;UCxxxxxxxxxxxxxxxxxxxxxxxx&#10;https://www.youtube.com/c/CustomChannelName" class="w-full px-3 py-2.5 bg-surface-950 border border-slate-800 rounded-xl font-mono text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-brand-500 resize-y transition"></textarea>
           <div class="flex items-center justify-between flex-wrap gap-2">
-            <span id="yt-input-count" class="text-xs text-slate-500">0 kênh được nhập</span>
+            <span id="ytc-input-count" class="text-xs text-slate-500">0 kênh được nhập</span>
             <div class="flex items-center gap-2 flex-wrap">
               <div class="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface-950 border border-slate-800">
                 <i class="ph-bold ph-video text-slate-400 text-sm"></i>
-                <label for="yt-max-videos" class="text-xs text-slate-400 font-semibold whitespace-nowrap">Video/kênh:</label>
-                <input type="number" id="yt-max-videos" min="0" max="50" value="10" class="w-12 bg-transparent text-center text-slate-200 font-mono text-xs focus:outline-none">
+                <label for="ytc-max-videos" class="text-xs text-slate-400 font-semibold whitespace-nowrap">Video/kênh:</label>
+                <input type="number" id="ytc-max-videos" min="0" max="50" value="10" class="w-12 bg-transparent text-center text-slate-200 font-mono text-xs focus:outline-none">
               </div>
-              <button id="btn-yt-clear" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs font-semibold transition border border-slate-700">
+              <button id="btn-ytc-clear" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 text-xs font-semibold transition border border-slate-700">
                 <i class="ph-bold ph-eraser"></i> Xóa trống
               </button>
-              <button id="btn-yt-check" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-red-500/20 active:scale-95">
+              <button id="btn-ytc-check" class="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-red-500/20 active:scale-95">
                 <i class="ph-bold ph-magnifying-glass"></i> Kiểm Tra Kênh
               </button>
             </div>
@@ -1014,32 +1701,32 @@
         </div>
 
         <!-- Progress Indicator -->
-        <div id="yt-progress" class="hidden p-4 rounded-2xl bg-surface-900/80 border border-slate-800/80">
+        <div id="ytc-progress" class="hidden p-4 rounded-2xl bg-surface-900/80 border border-slate-800/80">
           <div class="flex items-center gap-3">
             <div class="w-5 h-5 rounded-full border-2 border-red-400 border-t-transparent animate-spin shrink-0"></div>
-            <span id="yt-progress-text" class="text-sm text-slate-300">Đang kiểm tra kênh...</span>
+            <span id="ytc-progress-text" class="text-sm text-slate-300">Đang kiểm tra kênh...</span>
           </div>
         </div>
 
         <!-- Errors Section -->
-        <div id="yt-errors" class="hidden p-4 rounded-2xl bg-rose-900/20 border border-rose-500/30 space-y-2">
+        <div id="ytc-errors" class="hidden p-4 rounded-2xl bg-rose-900/20 border border-rose-500/30 space-y-2">
           <h4 class="text-xs font-bold text-rose-400 flex items-center gap-2">
             <i class="ph-bold ph-warning-circle"></i> Kênh không tìm thấy hoặc lỗi
           </h4>
-          <div id="yt-errors-list" class="space-y-1 max-h-32 overflow-y-auto"></div>
+          <div id="ytc-errors-list" class="space-y-1 max-h-32 overflow-y-auto"></div>
         </div>
 
         <!-- Summary Stats Row -->
-        <div id="yt-stats-row" class="hidden grid grid-cols-2 lg:grid-cols-4 gap-3"></div>
+        <div id="ytc-stats-row" class="hidden grid grid-cols-2 lg:grid-cols-4 gap-3"></div>
 
         <!-- Results Table Section -->
-        <div id="yt-results-section" class="hidden space-y-3">
+        <div id="ytc-results-section" class="hidden space-y-3">
           <div class="flex items-center justify-between">
             <h3 class="text-sm font-bold text-white flex items-center gap-2">
               <i class="ph-bold ph-chart-bar text-red-400"></i> Kết Quả Kiểm Tra
-              <span id="yt-result-count" class="text-xs font-mono text-slate-400 font-normal"></span>
+              <span id="ytc-result-count" class="text-xs font-mono text-slate-400 font-normal"></span>
             </h3>
-            <button id="btn-yt-export" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95">
+            <button id="btn-ytc-export" class="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-500/20 active:scale-95">
               <i class="ph-bold ph-microsoft-excel-logo"></i> Export Excel
             </button>
           </div>
@@ -1060,7 +1747,7 @@
                     <th class="px-3 py-3.5 text-center">Videos</th>
                   </tr>
                 </thead>
-                <tbody id="yt-results-tbody" class="divide-y divide-slate-800/60">
+                <tbody id="ytc-results-tbody" class="divide-y divide-slate-800/60">
                   <!-- Injected by JS -->
                 </tbody>
               </table>
@@ -1068,6 +1755,73 @@
           </div>
         </div>
 
+      </section>
+
+      <!-- ========================================== -->
+      <!-- TAB: ACCOUNT HUB                           -->
+      <!-- ========================================== -->
+      <section id="tab-account-hub" class="tab-pane hidden">
+        <!-- Header bar -->
+        <div class="ah-header-bar">
+          <h3>
+            <i class="ph-bold ph-database text-indigo-400"></i>
+            Account Data Hub
+            <span id="ah-dry-run-badge" class="ah-badge ah-badge-warn" title="Dry-run: không ghi thật">🧪 Dry-run</span>
+          </h3>
+          <div class="ah-header-actions">
+            <span id="ah-total-count" class="ah-count-label"></span>
+            <button id="ah-btn-reload" class="ah-btn ah-btn-sm">↻ Làm mới</button>
+            <button id="ah-btn-add-account" class="ah-btn ah-btn-primary ah-btn-sm">+ Thêm tài khoản</button>
+          </div>
+        </div>
+
+        <!-- Toolbar -->
+        <div class="ah-toolbar">
+          <input id="ah-search-input" type="text" placeholder="Tìm tên, login, email, YouTube…" class="ah-search" />
+          <select id="ah-filter-account-status" class="ah-select">
+            <option value="">Tất cả trạng thái</option>
+            <option value="LIVE">LIVE</option>
+            <option value="DIE">DIE</option>
+            <option value="CHECKING">CHECKING</option>
+            <option value="LOCKED">LOCKED</option>
+            <option value="NEED_LOGIN">NEED_LOGIN</option>
+            <option value="ERROR">ERROR</option>
+          </select>
+          <select id="ah-filter-adspower-status" class="ah-select">
+            <option value="">Tất cả AdsPower</option>
+            <option value="NOT_IMPORTED">NOT_IMPORTED</option>
+            <option value="ACTIVE">ACTIVE</option>
+            <option value="MISSING">MISSING</option>
+            <option value="DELETED">DELETED</option>
+            <option value="SYNC_ERROR">SYNC_ERROR</option>
+          </select>
+          <button id="ah-btn-filter-die-pending" class="ah-btn ah-btn-warn ah-btn-sm">⚡ DIE chưa xóa</button>
+        </div>
+
+        <!-- Table -->
+        <div class="ah-table-wrap rounded-xl border border-slate-800/70 overflow-hidden mt-2">
+          <table class="ah-table" id="ah-accounts-table">
+            <thead>
+              <tr>
+                <th class="col-check"><input type="checkbox" id="ah-select-all" /></th>
+                <th class="sortable" data-sort="profile_name">Tên Profile ↕</th>
+                <th>Trạng thái</th>
+                <th>AdsPower</th>
+                <th>Login ID</th>
+                <th>Hotmail</th>
+                <th>YouTube</th>
+                <th>Đồng bộ gần nhất</th>
+                <th>Thao tác</th>
+              </tr>
+            </thead>
+            <tbody id="ah-accounts-tbody">
+              <tr class="ah-loading-row"><td colspan="9">⏳ Nhấn vào tab để tải dữ liệu…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="ah-pagination" id="ah-pagination-bar"></div>
       </section>
 
     </main>
@@ -1158,7 +1912,108 @@
   <!-- Toast Notification Container -->
   <div id="toast-container" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
 
+  <!-- ========================================== -->
+  <!-- TAB: ACCOUNT HUB (embedded in SPA)         -->
+  <!-- ========================================== -->
+  <!-- Account Detail Modal -->
+  <div id="ah-account-modal" class="ah-modal hidden">
+    <div class="ah-modal-backdrop"></div>
+    <div class="ah-modal-box">
+      <div class="ah-modal-header">
+        <h2 id="ah-modal-title">Chi tiết tài khoản</h2>
+        <button class="ah-btn-icon" id="ah-modal-close" aria-label="Đóng">✕</button>
+      </div>
+      <div class="ah-modal-body">
+        <div class="ah-status-row" id="ah-modal-status-row"></div>
+        <div class="ah-field-grid" id="ah-modal-fields"></div>
+        <details class="ah-history-section">
+          <summary>📋 Lịch sử thay đổi</summary>
+          <div id="ah-modal-history-list" class="ah-history-list"></div>
+        </details>
+      </div>
+      <div class="ah-modal-footer">
+        <div id="ah-modal-edit-bar" class="hidden" style="display:none;gap:8px;">
+          <button id="ah-btn-save-draft" class="ah-btn">💾 Save draft</button>
+          <button id="ah-btn-save-sync" class="ah-btn ah-btn-primary">🔄 Save &amp; Sync</button>
+          <button id="ah-btn-cancel-edit" class="ah-btn ah-btn-ghost">Huỷ</button>
+        </div>
+        <div id="ah-modal-view-bar" style="display:flex;gap:8px;">
+          <button id="ah-btn-edit-account" class="ah-btn ah-btn-primary">✏️ Edit</button>
+          <button id="ah-btn-mark-die" class="ah-btn ah-btn-danger">☠️ Mark DIE</button>
+          <button id="ah-btn-close-modal" class="ah-btn ah-btn-ghost">Đóng</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Account Modal -->
+  <div id="ah-add-modal" class="ah-modal hidden">
+    <div class="ah-modal-backdrop"></div>
+    <div class="ah-modal-box ah-modal-box--sm">
+      <div class="ah-modal-header">
+        <h2>Thêm tài khoản mới</h2>
+        <button class="ah-btn-icon" data-ah-modal="ah-add-modal">✕</button>
+      </div>
+      <div class="ah-modal-body">
+        <form id="ah-add-account-form">
+          <label class="ah-form-label">Tên Profile <span class="req">*</span>
+            <input name="profileName" class="ah-input" required placeholder="Ví dụ: NV001 - Nguyen Van A" />
+          </label>
+          <label class="ah-form-label">Login ID / Email
+            <input name="loginId" class="ah-input" placeholder="email@gmail.com" />
+          </label>
+          <label class="ah-form-label">Hotmail
+            <input name="hotmail" class="ah-input" placeholder="backup@hotmail.com" />
+          </label>
+          <label class="ah-form-label">YouTube Channel URL
+            <input name="youtubeChannelUrl" class="ah-input" placeholder="https://youtube.com/c/..." />
+          </label>
+          <label class="ah-form-label">Gán cho
+            <input name="assignedTo" class="ah-input" placeholder="username" />
+          </label>
+        </form>
+      </div>
+      <div class="ah-modal-footer">
+        <button id="ah-btn-add-submit" class="ah-btn ah-btn-primary">Tạo tài khoản</button>
+        <button class="ah-btn ah-btn-ghost" data-ah-modal="ah-add-modal">Huỷ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Open taothaoAIClaw profile list modal -->
+  <div id="modal-open-taothao-list" class="hidden fixed inset-0 z-[100] items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm">
+    <div class="w-full max-w-2xl rounded-2xl bg-surface-900 border border-slate-700 shadow-2xl overflow-hidden">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+        <div>
+          <h3 class="text-base font-bold text-white">Mở danh sách profile taothaoAIClaw</h3>
+          <p class="text-xs text-slate-400 mt-1">Mỗi dòng nhập một Profile ID hoặc tên chính xác. Chức năng này chỉ mở cửa sổ, không chạy workflow.</p>
+        </div>
+        <button id="btn-close-taothao-list" class="p-2 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white" title="Đóng">
+          <i class="ph-bold ph-x"></i>
+        </button>
+      </div>
+      <div class="p-5 space-y-4">
+        <textarea id="taothao-profile-list-input" rows="12" class="w-full resize-y rounded-xl bg-surface-950 border border-slate-700 px-3 py-3 font-mono text-xs text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-500" placeholder="import_1784173541396_fvzba&#10;Tên profile chính xác&#10;..."></textarea>
+        <div class="flex items-center justify-between gap-4">
+          <label class="flex items-center gap-2 text-xs text-slate-400">
+            Mở song song
+            <input id="taothao-open-concurrency" type="number" min="1" max="20" value="5" class="w-20 rounded-lg bg-surface-950 border border-slate-700 px-2.5 py-1.5 text-slate-200 focus:outline-none focus:border-sky-500">
+          </label>
+          <span id="taothao-list-count" class="text-xs text-slate-500">0 dòng hợp lệ</span>
+        </div>
+        <div id="taothao-open-result" class="hidden max-h-40 overflow-y-auto rounded-xl border border-slate-800 bg-surface-950 p-3 text-xs text-slate-300"></div>
+      </div>
+      <div class="flex items-center justify-end gap-2 px-5 py-4 border-t border-slate-800">
+        <button id="btn-cancel-taothao-list" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-sm font-semibold transition">Huỷ</button>
+        <button id="btn-submit-taothao-list" class="px-4 py-2 rounded-xl bg-sky-600 hover:bg-sky-500 text-white text-sm font-semibold shadow-md shadow-sky-500/20 transition inline-flex items-center gap-1.5">
+          <i class="ph-bold ph-play"></i> Mở các cửa sổ
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- JavaScript -->
-  <script src="app.js"></script>
+  <script src="app.js?v=20261001-taothao-list"></script>
+  <script src="account-hub-embedded.js"></script>
 </body>
 </html>

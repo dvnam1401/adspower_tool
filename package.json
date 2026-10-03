@@ -8,11 +8,12 @@
     "build": "tsc",
     "start": "tsx src/index.ts",
     "desktop": "npm run build && electron .",
-    "pack:win": "npm run build && electron-packager . \"AdsPower Hybrid Studio\" --platform=win32 --arch=x64 --out=release --overwrite --ignore=\"^/src\"",
     "dev": "tsx watch src/index.ts",
-    "test:adspower": "tsx src/adspower/test-connection.ts",
     "cli": "tsx src/cli/index.ts",
-    "run-fb-batch": "tsx src/automation/run-fb-batch.ts"
+    "run-fb-batch": "tsx src/automation/run-fb-batch.ts",
+    "run-fb-share": "tsx src/automation/share-fb-page.ts",
+    "postinstall": "electron-builder install-app-deps",
+    "build:installer": "npm run build && electron-builder --win nsis"
   },
   "keywords": [
     "adspower",
@@ -25,16 +26,22 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "axios": "^1.19.0",
+    "better-sqlite3": "^13.0.3",
     "commander": "^13.1.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
+    "exceljs": "4.4.0",
     "express": "^4.21.2",
+    "googleapis": "^176.0.0",
     "playwright-core": "^1.50.1",
     "winston": "^3.17.0",
     "zod": "^3.24.2"
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",
+    "@electron/rebuild": "^3.7.2",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.0",
     "@types/node": "^22.13.4",
@@ -52,11 +59,39 @@
     "files": [
       "dist/**/*",
       "public/**/*",
+      "node_modules/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**/*",
+      "node_modules/bindings/**/*",
+      "node_modules/file-uri-to-path/**/*"
+    ],
     "win": {
-      "target": "dir",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "forceCodeSigning": false
-    }
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AdsPower Hybrid Studio",
+      "license": null
+    },
+    "npmRebuild": false
+  },
+  "allowScripts": {
+    "better-sqlite3@13.0.3": true,
+    "electron@34.5.8": true,
+    "esbuild@0.28.2": true
   }
 }

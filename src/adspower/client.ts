@@ -177,21 +177,12 @@ export class AdsPowerClient {
     if (params.lastOpenedTabs !== undefined) queryParams['last_opened_tabs'] = params.lastOpenedTabs ? '1' : '0';
     if (params.deleteCache !== undefined) queryParams['delete_cache'] = params.deleteCache ? '1' : '0';
 
-    // Default launch args to suppress notifications, credential manager bubbles and FedCM popups
-    const defaultLaunchArgs = [
-      '--disable-notifications',
-      '--deny-permission-prompts',
-      '--disable-infobars',
-      '--disable-save-password-bubble',
-      '--disable-features=FedCm,CredentialManagement,PasswordManagerOnboarding,OptimizationGuideModelDownloading,OptimizationHints',
-      '--password-store=basic',
-    ];
-
-    const finalLaunchArgs = params.launchArgs 
-      ? Array.from(new Set([...defaultLaunchArgs, ...params.launchArgs]))
-      : defaultLaunchArgs;
-
-    queryParams['launch_args'] = JSON.stringify(finalLaunchArgs);
+    // Chỉ truyền launch_args khi caller chủ động yêu cầu.
+    // Nếu truyền launch_args (dù rỗng), AdsPower sẽ MỞ CỬA SỔ MỚI thay vì
+    // tái sử dụng cửa sổ hiện tại (giống như bấm nút Open trên UI AdsPower).
+    if (params.launchArgs && params.launchArgs.length > 0) {
+      queryParams['launch_args'] = JSON.stringify(params.launchArgs);
+    }
     if (params.openTabs && params.openTabs.length > 0) {
       queryParams['open_tabs'] = JSON.stringify(params.openTabs);
     }

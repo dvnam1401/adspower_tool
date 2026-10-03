@@ -1,6 +1,5 @@
 import { facebookLoginAutomation, FacebookLoginResult } from './facebook-login.js';
 import { adsPowerClient } from '../adspower/client.js';
-import { cdpManager } from '../dom/cdp.js';
 import { logger } from '../utils/logger.js';
 import { broadcastEvent } from '../server/app.js';
 import { config } from '../config/index.js';
@@ -21,6 +20,12 @@ export interface ProfileBatchResult {
   profileName?: string;
   result?: FacebookLoginResult;
   error?: string;
+  /** Trạng thái chuẩn hóa: status của result, hoặc 'error' khi execute ném lỗi. */
+  status?: FacebookLoginResult['status'] | 'error';
+  /** URL cuối cùng của phiên (result.currentUrl), '' nếu không có. */
+  finalUrl?: string;
+  /** Lý do thất bại: result.message khi !success, hoặc error.message khi ném; undefined khi thành công. */
+  failureReason?: string;
   startTime: string;
   endTime?: string;
   durationMs?: number;
@@ -36,6 +41,8 @@ export interface BatchRunSummary {
   startTime: string;
   endTime: string;
   totalDurationMs: number;
+  /** Google Account Login: đếm theo loginState (chỉ có khi batch là google_account_login). */
+  loginStateCounts?: Record<string, number>;
   results: ProfileBatchResult[];
 }
 
@@ -114,8 +121,15 @@ export class BatchFacebookLoginRunner {
         time: pStart.toLocaleTimeString(),
       });
 
+      // [P1b→Batch] Quyết định đóng MỘT lần và ủy quyền toàn bộ việc đóng cho execute()
+      // (một nơi đóng duy nhất). autoCloseSuccess của batch được tôn trọng: nếu false
+      // -> keepBrowserOpenOnSuccess=true để execute() KHÔNG đóng.
+      const shouldClose = options.autoCloseSuccess ?? config.automation?.closeSuccessBrowsers ?? true;
+
       try {
-        const res = await facebookLoginAutomation.execute(profileIdOrName, options.targetUrl);
+        const res = await facebookLoginAutomation.execute(profileIdOrName, options.targetUrl, {
+          keepBrowserOpenOnSuccess: !shouldClose,
+        });
         const pEnd = new Date();
 
         batchResultItem.profileId = res.profileId;
@@ -124,24 +138,18 @@ export class BatchFacebookLoginRunner {
         batchResultItem.endTime = pEnd.toISOString();
         batchResultItem.durationMs = pEnd.getTime() - pStart.getTime();
 
+        // Bản ghi chuẩn hóa cấp cao (point 9): consumer không cần đào vào result.
+        batchResultItem.status = res.status;
+        batchResultItem.finalUrl = res.currentUrl || '';
+        batchResultItem.failureReason = res.success ? undefined : res.message;
+
         if (res.success) {
           if (res.status === 'already_logged_in') {
             alreadyLoggedInCount++;
           } else {
             successCount++;
           }
-
-          // Auto-close successful browser window if option enabled
-          const shouldClose = options.autoCloseSuccess ?? config.automation?.closeSuccessBrowsers ?? true;
-          if (shouldClose && res.profileId) {
-            try {
-              logger.info(`[Auto-Close] Đã đăng nhập THÀNH CÔNG -> Tự động đóng cửa sổ profile ${res.profileName || res.profileId} (Giữ lại các cửa sổ bị lỗi/checkpoint)...`);
-              await cdpManager.disconnect(res.profileId);
-              await adsPowerClient.stopBrowser({ profileId: res.profileId });
-            } catch (closeErr: any) {
-              logger.warn(`[Auto-Close Warning] Không thể đóng cửa sổ profile ${res.profileId}: ${closeErr.message}`);
-            }
-          }
+          // execute() đã tự đóng cửa sổ trên success (khi shouldClose) — batch KHÔNG đóng lần hai.
         } else if (res.status === 'checkpoint_human_verification' || res.status === 'recapcha_detected') {
           checkpointCount++;
           logger.info(`📌 [Keep-Open] Profile ${res.profileName || profileIdOrName} BỊ CHECKPOINT/RECAPTCHA -> Giữ cửa sổ trình duyệt mở để bạn thao tác thủ công.`);
@@ -156,6 +164,9 @@ export class BatchFacebookLoginRunner {
         batchResultItem.error = err.message;
         batchResultItem.endTime = pEnd.toISOString();
         batchResultItem.durationMs = pEnd.getTime() - pStart.getTime();
+        batchResultItem.status = 'error';
+        batchResultItem.finalUrl = '';
+        batchResultItem.failureReason = err.message;
         failedCount++;
 
         logger.error(`[Worker Thread Error] Profile: ${profileIdOrName} -> Lỗi: ${err.message}`);
